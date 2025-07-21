@@ -1,0 +1,132 @@
+#include <stdio.h>
+#include <memory>
+#include <sys/time.h>
+#include "rkYolov5s.hpp"
+#include "rknnPool.hpp"
+#include "opencv2/core/core.hpp"
+#include "opencv2/videoio.hpp"
+#include "opencv2/highgui.hpp"
+// #include "ros/ros.h"
+// #include "std_msgs/String.h"
+// #include <sstream>
+
+typedef struct {
+    char* model_path;
+    char* video_input;
+    int thread_num;
+    bool help_flag;
+} ProgramArgs;
+
+void print_usage(const char* prog_name) {
+    printf("Usage: %s <rknn_model> <video_input> [options]\n", prog_name);
+    printf("Options:\n");
+    printf("  -t <num>    Set thread number (default: 6)\n");
+    printf("  -h          Show this help message\n");
+}
+
+ProgramArgs parse_arguments(int argc, char** argv) {
+    ProgramArgs args = {0};
+    args.thread_num = 6;
+    args.help_flag = false;
+
+    if (argc < 3) {
+        args.help_flag = true;
+        return args;
+    }
+
+    args.model_path = argv[1];
+    args.video_input = argv[2];
+
+    for (int i = 3; i < argc; i++) {
+        if (strcmp(argv[i], "-t") == 0 && i + 1 < argc) {
+            args.thread_num = atoi(argv[++i]);
+            if (args.thread_num <= 0) {
+                fprintf(stderr, "Warning: Invalid thread number, using default 6\n");
+                args.thread_num = 6;
+            }
+        } else if (strcmp(argv[i], "-h") == 0) {
+            args.help_flag = true;
+        }
+    }
+    return args;
+}
+
+int main(int argc, char **argv)
+{
+    ProgramArgs args = parse_arguments(argc, argv);
+    
+    if (args.help_flag) {
+        print_usage(argv[0]);
+        return EXIT_FAILURE;
+    }
+
+    printf("Model: %s\nVideo: %s\nThreads: %d\n",
+           args.model_path, args.video_input, args.thread_num);
+    
+    const char* model_name = args.model_path;
+    const char* video_name = args.video_input;
+    int threadNum = args.thread_num;
+
+    rknnPool<rkYolov5s, cv::Mat, cv::Mat> testPool(model_name, threadNum);
+    if (testPool.init() != 0)
+    {
+        printf("rknnPool init fail!\n");
+        return -1;
+    }
+
+    cv::namedWindow("Camera FPS");
+    cv::VideoCapture capture;
+    if (strlen(video_name) == 1)
+        capture.open((int)(video_name[0] - '0'));
+    else
+        capture.open(video_name);
+
+    struct timeval time;
+    gettimeofday(&time, nullptr);
+    auto startTime = time.tv_sec * 1000 + time.tv_usec / 1000;
+
+    int frames = 0;
+    auto beforeTime = startTime;
+    while (capture.isOpened())
+    {
+        cv::Mat img;
+        if (capture.read(img) == false)
+            break;
+        if (testPool.put(img) != 0)
+            break;
+
+        if (frames >= threadNum && testPool.get(img) != 0)
+            break;
+        // cv::imshow("Camera FPS", img);
+        // if (cv::waitKey(1) == 'q') // 延时1毫秒,按q键退出/Press q to exit
+        //     break;
+        frames++;
+
+        if (frames % 120 == 0)
+        {
+            gettimeofday(&time, nullptr);
+            auto currentTime = time.tv_sec * 1000 + time.tv_usec / 1000;
+            printf("120帧内平均帧率:\t %f fps/s\n", 120.0 / float(currentTime - beforeTime) * 1000.0);
+            beforeTime = currentTime;
+        }
+    }
+
+    // 清空rknn线程池/Clear the thread pool
+    while (true)
+    {
+        cv::Mat img;
+        if (testPool.get(img) != 0)
+            break;
+        cv::imshow("Camera FPS", img);
+        if (cv::waitKey(1) == 'q') // 延时1毫秒,按q键退出/Press q to exit
+            break;
+        frames++;
+    }
+
+    gettimeofday(&time, nullptr);
+    auto endTime = time.tv_sec * 1000 + time.tv_usec / 1000;
+
+    printf("Average:\t %f fps/s\n", float(frames) / float(endTime - startTime) * 1000.0);
+
+    return 0;
+}

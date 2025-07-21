@@ -1,0 +1,52 @@
+# Prerequisites
+*.d
+
+# Compiled Object files
+*.slo
+*.lo
+*.o
+*.obj
+
+# Precompiled Headers
+*.gch
+*.pch
+
+# Compiled Dynamic libraries
+*.dylib
+*.dll
+
+# Fortran module files
+*.mod
+*.smod
+
+# Compiled Static libraries
+*.lai
+*.la
+*.a
+*.lib
+
+# Executables
+*.exe
+*.out
+*.app
+
+*.mp4
+/build
+/install
+/.vscode
+
+*.png
+*.jpg
+*.mp4
+
+*.rknn
+*.onnx
+*.bin
+/.idea
+/3rdparty
+*/build
+*/install
+*.npy
+*.bag
+/runtime
+/model

@@ -14,7 +14,7 @@ class rknnPool
 {
 private:
     int threadNum;
-    std::string encoderPath, grid_samplePath, flat_idxPath, decoderPath;
+    SimpleBEV::ModelPaths modelPaths;
     rknn_tensor_mem *output_mems_preprosess[2];
     long long id;
     std::mutex idMtx, queueMtx;
@@ -26,11 +26,7 @@ private:
     int getModelId();
 
 public:
-    rknnPool(const std::string encoderPath, 
-            const std::string preprosessPath,
-            const std::string grid_samplePath,
-            const std::string decoderPath,
-            int threadNum);
+    rknnPool(const SimpleBEV::ModelPaths& modelPaths, int threadNum);
     int init();
     // 模型推理/Model inference
     int put(inputType inputData);
@@ -41,19 +37,8 @@ public:
 };
 
 template <typename rknnModel, typename inputType, typename outputType>
-rknnPool<rknnModel, inputType, outputType>::rknnPool(const std::string encoderPath, 
-                                                    const std::string grid_samplePath,
-                                                    const std::string flat_id_path,
-                                                    const std::string decoder_path,
-                                                    int threadNum)
-{
-    this->encoderPath = encoderPath;
-    this->grid_samplePath = grid_samplePath;
-    this->flat_idxPath = flat_id_path;
-    this->decoderPath = decoder_path;
-    this->threadNum = threadNum;
-    this->id = 0;
-}
+rknnPool<rknnModel, inputType, outputType>::rknnPool(const SimpleBEV::ModelPaths& modelPaths, int threadNum)
+    : modelPaths(modelPaths), threadNum(threadNum), id(0) {}
 
 template <typename rknnModel, typename inputType, typename outputType>
 int rknnPool<rknnModel, inputType, outputType>::init()
@@ -62,10 +47,7 @@ int rknnPool<rknnModel, inputType, outputType>::init()
     {
         this->pool = std::make_unique<dpool::ThreadPool>(this->threadNum);
         for (int i = 0; i < this->threadNum; i++)
-            models.push_back(std::make_shared<rknnModel>(this->encoderPath.c_str(),
-                                                         this->grid_samplePath.c_str(),
-                                                         this->flat_idxPath.c_str(),
-                                                         this->decoderPath.c_str()));
+            models.push_back(std::make_shared<rknnModel>(modelPaths));
     }
     catch (const std::bad_alloc &e)
     {

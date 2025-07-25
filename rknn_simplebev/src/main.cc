@@ -27,12 +27,12 @@ static std::vector<std::string> split(const std::string& str, const std::string&
 
 int main(int argc, char **argv)
 {
-    char* encoder_path = argv[1];
-    char* grid_sample_path = argv[2];
-    char* flat_id_path = argv[3];
-    char* decoder_path = argv[4];
-
-    
+      SimpleBEV::ModelPaths modelPaths{
+        argv[1], // encoder
+        argv[2], // grid_sample
+        argv[4], // decoder
+        argv[3]  // flat_idx
+    };
     // 初始化rknn线程池/Initialize the rknn thread pool
     int threadNum = 1;
     rknnPool<SimpleBEV, unsigned char*, int> testPool(encoder_path, grid_sample_path, flat_id_path, decoder_path, threadNum);

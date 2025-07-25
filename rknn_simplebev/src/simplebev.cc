@@ -81,19 +81,8 @@ static int saveFloat(const char *file_name, float *output, int element_size)
     return 0;
 }
 
-SimpleBEV::SimpleBEV(const std::string &encoder_path,
-                     const std::string &grid_sample_path,
-                     const std::string &flat_idx_path,
-                     const std::string &decoder_path)
-{
-    this->encoder_path = encoder_path;
-    this->flat_idx_path = flat_idx_path;
-    this->grid_sample_path = grid_sample_path;
-    this->decoder_path = decoder_path;
-
-    // nms_threshold = NMS_THRESH;      // 默认的NMS阈值
-    // box_conf_threshold = BOX_THRESH; // 默认的置信度阈值
-}
+SimpleBEV::SimpleBEV(const ModelPaths& paths)
+    : model_paths_(paths) {}
 
 int SimpleBEV::init(rknn_context *encoder_ctx_in, 
                     rknn_context *grid_sample_ctx_in, 
@@ -105,9 +94,9 @@ int SimpleBEV::init(rknn_context *encoder_ctx_in,
     int grid_sample_data_size = 0;
     int decoder_data_size = 0;
 
-    encoder_data = load_model(encoder_path.c_str(), &encoder_data_size);
-    grid_sample_data = load_model(grid_sample_path.c_str(), &grid_sample_data_size);
-    decoder_data = load_model(decoder_path.c_str(), &decoder_data_size);
+    encoder_data = load_model(model_paths_.encoder_path.c_str(), &encoder_data_size);
+    grid_sample_data = load_model(model_paths_.grid_sample_path.c_str(), &grid_sample_data_size);
+    decoder_data = load_model(model_paths_.decoder_path.c_str(), &decoder_data_size);
 
     // 模型参数复用/Model parameter reuse
     if (share_weight == true){
@@ -163,13 +152,13 @@ int SimpleBEV::init(rknn_context *encoder_ctx_in,
     query_model_io_num(grid_sample_ctx, grid_sample_io_num, "grid_sample");
     query_model_io_num(decoder_ctx, decoder_io_num, "decoder");
 
-    query_input_attributes(encoder_ctx, encoder_io_num, "encoder", encoder_input_attrs);
-    query_input_attributes(grid_sample_ctx, grid_sample_io_num, "grid_sample", grid_sample_input_attrs);
-    query_input_attributes(decoder_ctx, decoder_io_num, "decoder", decoder_input_attrs);
+    query_input_attributes(encoder_ctx, encoder_io_num, "encoder", encoder_input_attrs.data());
+    query_input_attributes(grid_sample_ctx, grid_sample_io_num, "grid_sample", grid_sample_input_attrs.data());
+    query_input_attributes(decoder_ctx, decoder_io_num, "decoder", decoder_input_attrs.data());
 
-    query_output_attributes(encoder_ctx, encoder_io_num, "encoder", encoder_output_attrs);
-    query_output_attributes(grid_sample_ctx, grid_sample_io_num, "grid_sample", grid_sample_output_attrs);
-    query_output_attributes(decoder_ctx, decoder_io_num, "decoder", decoder_output_attrs);
+    query_output_attributes(encoder_ctx, encoder_io_num, "encoder", encoder_output_attrs.data());
+    query_output_attributes(grid_sample_ctx, grid_sample_io_num, "grid_sample", grid_sample_output_attrs.data());
+    query_output_attributes(decoder_ctx, decoder_io_num, "decoder", decoder_output_attrs.data());
 
     if (share_weight == true){
         this->flat_idx_mems = flat_idx_mems_in;
@@ -177,22 +166,22 @@ int SimpleBEV::init(rknn_context *encoder_ctx_in,
     else{
         this->init_flat_idx_mems();
     }
-    input_size = RGB_CAMXS_ATTR.size;
-    input_mems = rknn_create_mem(grid_sample_ctx, RGB_CAMXS_ATTR.size_with_stride);
+    input_size = encoder_input_attrs[0].size;
+    input_mems = rknn_create_mem(grid_sample_ctx, encoder_input_attrs[0].size_with_stride);
         // Copy input data to input tensor memory
-    int width  = RGB_CAMXS_ATTR.dims[2];
-    int stride = RGB_CAMXS_ATTR.w_stride;
+    int width  = encoder_input_attrs[0].dims[2];
+    int stride = encoder_input_attrs[0].w_stride;
     if (width != stride) {
         printf("width != stride");
         return -1;}
         // if (width == stride) {
-        //   memcpy(input_mems->virt_addr, input_data, RGB_CAMXS_ATTR.size);
+        //   memcpy(input_mems->virt_addr, input_data, encoder_input_attrs[0].size);
         // } else { 
         //     printf("[ERROR!] width != stride");
         //   }
-    RGB_CAMXS_ATTR.type = (rknn_tensor_type)RKNN_TENSOR_UINT8;
-    RGB_CAMXS_ATTR.fmt = (rknn_tensor_format)RKNN_TENSOR_NHWC;
-    ret = rknn_set_io_mem(encoder_ctx, input_mems, &RGB_CAMXS_ATTR);
+    encoder_input_attrs[0].type = (rknn_tensor_type)RKNN_TENSOR_UINT8;
+    encoder_input_attrs[0].fmt = (rknn_tensor_format)RKNN_TENSOR_NHWC;
+    ret = rknn_set_io_mem(encoder_ctx, input_mems, &encoder_input_attrs[0]);
 
     for (uint32_t i = 0; i < encoder_io_num.n_output; ++i) {
       int output_size = encoder_output_attrs[i].n_elems * 2;
@@ -210,15 +199,15 @@ int SimpleBEV::init(rknn_context *encoder_ctx_in,
     }
     grid_sample_input_attrs[0].type = (rknn_tensor_type)RKNN_TENSOR_FLOAT16;
     grid_sample_input_attrs[0].fmt = (rknn_tensor_format)RKNN_TENSOR_NHWC;
-    FLAT_IDX_ATTR.type = (rknn_tensor_type)RKNN_TENSOR_FLOAT16;
-    FLAT_IDX_ATTR.fmt = (rknn_tensor_format)RKNN_TENSOR_NHWC;
+    grid_sample_input_attrs[1].type = (rknn_tensor_type)RKNN_TENSOR_FLOAT16;
+    grid_sample_input_attrs[1].fmt = (rknn_tensor_format)RKNN_TENSOR_NHWC;
     // Set input tensor memory
     ret = rknn_set_io_mem(grid_sample_ctx, output_mems_encoder[0], &grid_sample_input_attrs[0]);
     if (ret < 0) {
     printf("rknn_set_io_mem fail! ret=%d\n", ret);
     return -1;
     }
-    ret = rknn_set_io_mem(grid_sample_ctx, flat_idx_mems, &FLAT_IDX_ATTR);
+    ret = rknn_set_io_mem(grid_sample_ctx, flat_idx_mems, &grid_sample_input_attrs[1]);
     
     int bs_array_grid_sample[2] = {2, 2};
     // Allocate output memory
@@ -323,7 +312,7 @@ void save_float16_to_bin(rknpu2::float16* data, size_t count) {
 int SimpleBEV::infer(unsigned char* input_data)
 {
     std::lock_guard<std::mutex> lock(mtx);
-    memcpy(input_mems->virt_addr, input_data, RGB_CAMXS_ATTR.size);
+    memcpy(input_mems->virt_addr, input_data, encoder_input_attrs[0].size);
     // 模型推理/Model inference
     ret = rknn_run(encoder_ctx, NULL);
     ret = rknn_run(grid_sample_ctx, NULL);
@@ -380,30 +369,30 @@ int SimpleBEV::infer(unsigned char* input_data)
 }
 
 int SimpleBEV::init_flat_idx_mems() {
-    if (flat_idx_path.empty()) {
+    if (model_paths_.flat_idx_path.empty()) {
         std::cerr << "Error: flat_idx_path is empty!" << std::endl;
         return -1;
     }
 
     unsigned char* flat_idx_data;
     // Load input
-    flat_idx_data = new unsigned char[FLAT_IDX_ATTR.size]; 
+    flat_idx_data = new unsigned char[grid_sample_input_attrs[1].size]; 
 
-    printf("%s\n", flat_idx_path.c_str());
-    FILE* fp_flat_idx = fopen(flat_idx_path.c_str(), "rb");
+    printf("%s\n", model_paths_.flat_idx_path.c_str());
+    FILE* fp_flat_idx = fopen(model_paths_.flat_idx_path.c_str(), "rb");
     if (fp_flat_idx == NULL) {
       perror("open failed!");
       return -1;
     }
 
-    fread(flat_idx_data, FLAT_IDX_ATTR.size, 1, fp_flat_idx);
+    fread(flat_idx_data, grid_sample_input_attrs[1].size, 1, fp_flat_idx);
     fclose(fp_flat_idx);
-    this->flat_idx_mems = rknn_create_mem(grid_sample_ctx, FLAT_IDX_ATTR.size_with_stride);
+    this->flat_idx_mems = rknn_create_mem(grid_sample_ctx, grid_sample_input_attrs[1].size_with_stride);
     // Copy input data to input tensor memory
-    const int width  = FLAT_IDX_ATTR.dims[2];
-    const int stride = FLAT_IDX_ATTR.w_stride;
+    const int width  = grid_sample_input_attrs[1].dims[2];
+    const int stride = grid_sample_input_attrs[1].w_stride;
     if (width == stride) {
-      memcpy(this->flat_idx_mems->virt_addr, flat_idx_data, FLAT_IDX_ATTR.size);
+      memcpy(this->flat_idx_mems->virt_addr, flat_idx_data, grid_sample_input_attrs[1].size);
     } else { 
         std::cerr << "Critical error: width (" << width  << ") != stride (" << stride << ")" << std::endl;
         rknn_destroy_mem(grid_sample_ctx, flat_idx_mems);
@@ -459,7 +448,7 @@ int SimpleBEV::query_output_attributes(rknn_context ctx,
     return 0;
     }
 
-int SimpleBEV::get_input_size() {
+int SimpleBEV::get_input_size() const {
     return input_size;
 }
 
@@ -468,7 +457,7 @@ SimpleBEV::~SimpleBEV()
     rknn_destroy(encoder_ctx);
     rknn_destroy(grid_sample_ctx);
     rknn_destroy(decoder_ctx);
-  
+
     if (encoder_data)
         free(encoder_data);
     if (grid_sample_data)
@@ -476,28 +465,16 @@ SimpleBEV::~SimpleBEV()
     if (decoder_data)
         free(decoder_data);
 
-    if (encoder_input_attrs)
-        free(encoder_input_attrs);
-    if (grid_sample_input_attrs)
-        free(grid_sample_input_attrs);
-    if (decoder_input_attrs)
-        free(decoder_input_attrs);
-
-    if (encoder_output_attrs)
-        free(encoder_output_attrs);
-    if (grid_sample_output_attrs)
-        free(grid_sample_output_attrs);
-    if (decoder_output_attrs)
-        free(decoder_output_attrs);
-
-    for (uint32_t i = 0; i < encoder_io_num.n_output; ++i) {
-        rknn_destroy_mem(encoder_ctx, output_mems_encoder[i]);
-      }
-    for (uint32_t i = 0; i < grid_sample_io_num.n_output; ++i) {
-    rknn_destroy_mem(grid_sample_ctx, output_mems_grid_sample[i]);
+    for (size_t i = 0; i < output_mems_encoder.size(); ++i) {
+        if (output_mems_encoder[i])
+            rknn_destroy_mem(encoder_ctx, output_mems_encoder[i]);
     }
-    for (uint32_t i = 0; i < decoder_io_num.n_output; ++i) {
-    rknn_destroy_mem(decoder_ctx, output_mems_grid_sample[i]);
+    for (size_t i = 0; i < output_mems_grid_sample.size(); ++i) {
+        if (output_mems_grid_sample[i])
+            rknn_destroy_mem(grid_sample_ctx, output_mems_grid_sample[i]);
     }
-    
+    for (size_t i = 0; i < output_mems_decoder.size(); ++i) {
+        if (output_mems_decoder[i])
+            rknn_destroy_mem(decoder_ctx, output_mems_decoder[i]);
+    }
 }

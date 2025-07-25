@@ -362,8 +362,8 @@ int SimpleBEV::infer(unsigned char* input_data)
             }
             printf("\n...\n");
         }
-        auto* out_data_decoder = (rknpu2::float16 *)output_mems_decoder[2]->virt_addr;
-        save_float16_to_bin(out_data_decoder, 9216);
+        // auto* out_data_decoder = (rknpu2::float16 *)output_mems_decoder[2]->virt_addr;
+        // save_float16_to_bin(out_data_decoder, 9216);
 
     return 1;
 }

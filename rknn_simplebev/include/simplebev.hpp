@@ -5,6 +5,8 @@
 #include <mutex>
 #include <string>
 #include <array>
+#include <opencv2/opencv.hpp>
+#include "fp16/Float16.h"
 
 // 常量定义
 constexpr int kEncoderInputNum = 1;
@@ -54,6 +56,7 @@ public:
     int query_input_attributes(rknn_context ctx, rknn_input_output_num& io_num, const char* model_name, rknn_tensor_attr* attrs);
     int query_output_attributes(rknn_context ctx, rknn_input_output_num& io_num, const char* model_name, rknn_tensor_attr* attrs);
     int infer(unsigned char* input_data);
+    void visualize_bev_grid(rknpu2::float16* bev_data, int width, int height);
 
     ~SimpleBEV();
 

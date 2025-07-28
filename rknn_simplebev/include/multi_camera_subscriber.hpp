@@ -32,8 +32,8 @@ public:
     
     // 获取合并后的图像尺寸信息
     static constexpr int NUM_CAMERAS = 8;
-    static constexpr int IMAGE_HEIGHT = 480;
-    static constexpr int IMAGE_WIDTH = 640;
+    static constexpr int IMAGE_HEIGHT = 224;
+    static constexpr int IMAGE_WIDTH = 400;
     static constexpr int IMAGE_CHANNELS = 3;
     static constexpr int TOTAL_SIZE = NUM_CAMERAS * IMAGE_HEIGHT * IMAGE_WIDTH * IMAGE_CHANNELS;
 

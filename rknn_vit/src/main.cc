@@ -248,8 +248,8 @@ int main(int argc, char** argv)
     int baseline = 0;
 
     // 准备显示文本
-    std::string text = "Class: " + imagenet_label.get_label(MaxClass[0]) + 
-                      " Prob: " + formatSigmoid(fMaxProb[0]);
+    std::string text =imagenet_label.get_label(MaxClass[0]) + 
+                      " " + formatSigmoid(fMaxProb[0]);
                       
     // 获取文本大小
     cv::Size textSize = cv::getTextSize(text, fontFace, fontScale, thickness, &baseline);

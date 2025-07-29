@@ -7,6 +7,8 @@
 #include <mutex>
 #include <queue>
 #include <memory>
+#include <chrono>
+#include <thread>
 
 // rknnModel模型类, inputType模型输入类型, outputType模型输出类型
 template <typename rknnModel, typename inputType, typename outputType>
@@ -32,6 +34,7 @@ public:
     int put(inputType inputData);
     // 获取推理结果/Get the results of your inference
     int get(outputType &outputData);
+    int get(outputType &outputData, int timeout_ms);  // 重载版本，支持超时    
     int get_input_size();
     ~rknnPool();
 };
@@ -86,12 +89,34 @@ template <typename rknnModel, typename inputType, typename outputType>
 int rknnPool<rknnModel, inputType, outputType>::get(outputType &outputData)
 {
     std::lock_guard<std::mutex> lock(queueMtx);
-      if(futs.empty() == true)
+    if(futs.empty() == true)
         return 1;
     outputData = futs.front().get();
     futs.pop();
     return 0;
 }
+
+// 重载版本，支持超时
+template <typename rknnModel, typename inputType, typename outputType>
+int rknnPool<rknnModel, inputType, outputType>::get(outputType &outputData, int timeout_ms)
+{
+    std::lock_guard<std::mutex> lock(queueMtx);
+    if(futs.empty() == true)
+        return 1;
+    
+    // 使用future的wait_for方法，避免长时间阻塞
+    auto& future = futs.front();
+    auto status = future.wait_for(std::chrono::milliseconds(timeout_ms));
+    
+    if (status == std::future_status::ready) {
+        // 推理完成，获取结果
+        outputData = future.get();
+        futs.pop();
+        return 0;
+    } else 
+        return 2; // 返回超时状态码
+}
+
 
 template <typename rknnModel, typename inputType, typename outputType>
 int rknnPool<rknnModel, inputType, outputType>::get_input_size()

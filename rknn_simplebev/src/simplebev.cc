@@ -319,12 +319,12 @@ rknpu2::float16 * SimpleBEV::infer(unsigned char* input_data)
     ret = rknn_run(grid_sample_ctx, NULL);
     if (ret < 0) {
       printf("grid_sample rknn_run fail! ret=%d\n", ret);
-      return -1;
+      return nullptr;
     }
     ret = rknn_run(decoder_ctx, NULL);
     if (ret < 0) {
       printf("decoder rknn_run fail! ret=%d\n", ret);
-      return -1;
+      return nullptr;
     }
 
 

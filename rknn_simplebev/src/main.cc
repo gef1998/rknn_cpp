@@ -33,17 +33,11 @@ void imageProcessingCallback(unsigned char* merged_image_data) {
         ROS_WARN("Fail to put image to rknn pool!");
         return;
     }
-    
-    // // 尝试获取推理结果
-    // int result;
-    // if (g_pool->get(result) == 0) {
-    //     ROS_INFO("Inference Competed, res: %d", result);
-    // }
 }
 
 void visualize_bev_grid(rknpu2::float16* bev_data, int width, int height) {
   // 创建OpenCV矩阵
-  cv::Mat bev_image(height, width, CV_8UC3);
+  cv::Mat bev_image(width, height, CV_8UC3);
   
   // 对每个像素进行sigmoid处理和二值化
   for (int y = 0; y < height; y++) {
@@ -55,30 +49,31 @@ void visualize_bev_grid(rknpu2::float16* bev_data, int width, int height) {
           // Sigmoid激活函数: 1 / (1 + exp(-x))
           float sigmoid_val = 1.0f / (1.0f + std::exp(-raw_val));
           
-          // 二值化：>0.5为可行驶区域(白色)，<=0.5为不可行驶区域(黑色)
+          // 二值化：>0.5为不可行驶区域(白色)，<=0.5为可行驶区域(黑色)
           uchar pixel_val = (sigmoid_val > 0.5f) ? 255 : 0;
           
           // 设置RGB值
-          bev_image.at<cv::Vec3b>(y, x) = cv::Vec3b(pixel_val, pixel_val, pixel_val);
+          bev_image.at<cv::Vec3b>(x, y) = cv::Vec3b(pixel_val, pixel_val, pixel_val);
       }
   }
   
   // 在中心添加红色标记点，便于观察方向
   int center_x = width / 2;
   int center_y = height / 2;
-  bev_image.at<cv::Vec3b>(center_y-1, center_x-1) = cv::Vec3b(0, 0, 255);
-  bev_image.at<cv::Vec3b>(center_y-1, center_x) = cv::Vec3b(0, 0, 255);
-  bev_image.at<cv::Vec3b>(center_y, center_x-1) = cv::Vec3b(0, 0, 255);
-  bev_image.at<cv::Vec3b>(center_y, center_x) = cv::Vec3b(0, 0, 255);
-  
+  cv::rectangle(bev_image, 
+    cv::Point(center_x-2, center_y-2),
+    cv::Point(center_x+2, center_y+2),
+    cv::Scalar(0, 0, 255),
+    -1);
+
   // 放大显示图像，便于观察细节 (96x96 -> 480x480)
   // cv::Mat enlarged_image;
   // cv::resize(bev_image, enlarged_image, cv::Size(480, 480), 0, 0, cv::INTER_NEAREST);
-
+//   cv::flip(bev_image, bev_image, 0);
   // 直接显示图像
   cv::imshow("BEV Inference", bev_image);
   cv::waitKey(1); // 非阻塞显示，允许实时更新
-  printf("BEV网格已显示 (白色=可行驶，黑色=不可行驶)\n");
+  printf("BEV网格已显示 (白色=不可行驶，黑色=可行驶)\n");
 }
 
 
@@ -149,17 +144,15 @@ int main(int argc, char **argv) {
         ROS_INFO("SimpleBEV multi-camera node ready, waiting for image data...");
         ROS_INFO("Expected input format: 8 x 224 x 400 x 3 = %d bytes", 
                  MultiCameraSubscriber::TOTAL_SIZE);
-        
-        // 主循环
-        ros::Rate loop_rate(20); // 100Hz TODO:对帧率的影响
+        ros::Rate loop_rate(5); // 
         while (ros::ok() && g_running) {
             ros::spinOnce();
             
             // 处理队列中的推理结果
             rknpu2::float16 * result;
-            while (g_pool->get(result) == 0) {
+            if (g_pool->get(result, 100) == 0) {
                 processed_frames++;
-                
+
                 // 显示BEV可视化结果
                 if (result != nullptr) {
                     visualize_bev_grid(result, 96, 96);
@@ -202,9 +195,12 @@ int main(int argc, char **argv) {
     if (g_pool) {
         // 清空线程池中剩余的任务
         int remaining_results = 0;
-        int result;
+        rknpu2::float16 * result;
         while (g_pool->get(result) == 0) {
             remaining_results++;
+        }
+        if (result != nullptr) {
+            visualize_bev_grid(result, 96, 96);
         }
         if (remaining_results > 0) {
             ROS_INFO("Processed remaining %d inference results", remaining_results);

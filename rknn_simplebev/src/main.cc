@@ -3,12 +3,15 @@
 #include <stdio.h>
 #include <memory>
 #include <sys/time.h>
+#include <opencv2/opencv.hpp>
+#include <cmath>
 #include "simplebev.hpp"
 #include "rknnPool.hpp"
 #include "multi_camera_subscriber.hpp"
+#include "fp16/Float16.h"
 
 // 全局变量
-std::unique_ptr<rknnPool<SimpleBEV, unsigned char*, int>> g_pool;
+std::unique_ptr<rknnPool<SimpleBEV, unsigned char*, rknpu2::float16*>> g_pool;
 std::unique_ptr<MultiCameraSubscriber> g_camera_subscriber;
 bool g_running = true;
 
@@ -37,6 +40,47 @@ void imageProcessingCallback(unsigned char* merged_image_data) {
     //     ROS_INFO("Inference Competed, res: %d", result);
     // }
 }
+
+void visualize_bev_grid(rknpu2::float16* bev_data, int width, int height) {
+  // 创建OpenCV矩阵
+  cv::Mat bev_image(height, width, CV_8UC3);
+  
+  // 对每个像素进行sigmoid处理和二值化
+  for (int y = 0; y < height; y++) {
+      for (int x = 0; x < width; x++) {
+          int idx = y * width + x;
+          
+          float raw_val = static_cast<float>(bev_data[idx]);
+          
+          // Sigmoid激活函数: 1 / (1 + exp(-x))
+          float sigmoid_val = 1.0f / (1.0f + std::exp(-raw_val));
+          
+          // 二值化：>0.5为可行驶区域(白色)，<=0.5为不可行驶区域(黑色)
+          uchar pixel_val = (sigmoid_val > 0.5f) ? 255 : 0;
+          
+          // 设置RGB值
+          bev_image.at<cv::Vec3b>(y, x) = cv::Vec3b(pixel_val, pixel_val, pixel_val);
+      }
+  }
+  
+  // 在中心添加红色标记点，便于观察方向
+  int center_x = width / 2;
+  int center_y = height / 2;
+  bev_image.at<cv::Vec3b>(center_y-1, center_x-1) = cv::Vec3b(0, 0, 255);
+  bev_image.at<cv::Vec3b>(center_y-1, center_x) = cv::Vec3b(0, 0, 255);
+  bev_image.at<cv::Vec3b>(center_y, center_x-1) = cv::Vec3b(0, 0, 255);
+  bev_image.at<cv::Vec3b>(center_y, center_x) = cv::Vec3b(0, 0, 255);
+  
+  // 放大显示图像，便于观察细节 (96x96 -> 480x480)
+  // cv::Mat enlarged_image;
+  // cv::resize(bev_image, enlarged_image, cv::Size(480, 480), 0, 0, cv::INTER_NEAREST);
+
+  // 直接显示图像
+  cv::imshow("BEV Inference", bev_image);
+  cv::waitKey(1); // 非阻塞显示，允许实时更新
+  printf("BEV网格已显示 (白色=可行驶，黑色=不可行驶)\n");
+}
+
 
 int main(int argc, char **argv) {
     // 初始化ROS节点
@@ -76,7 +120,7 @@ int main(int argc, char **argv) {
     try {
         // 初始化RKNN线程池
         ROS_INFO("Initializing RKNN thread pool...");
-        g_pool = std::make_unique<rknnPool<SimpleBEV, unsigned char*, int>>(
+        g_pool = std::make_unique<rknnPool<SimpleBEV, unsigned char*, rknpu2::float16*>>(
             modelPaths, threadNum);
         
         if (g_pool->init() != 0) {
@@ -112,9 +156,14 @@ int main(int argc, char **argv) {
             ros::spinOnce();
             
             // 处理队列中的推理结果
-            int result;
+            rknpu2::float16 * result;
             while (g_pool->get(result) == 0) {
                 processed_frames++;
+                
+                // 显示BEV可视化结果
+                if (result != nullptr) {
+                    visualize_bev_grid(result, 96, 96);
+                }
                 
                 // 每120帧打印一次统计信息
                 if (processed_frames % 120 == 0) {

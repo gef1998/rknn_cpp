@@ -310,7 +310,7 @@ void save_float16_to_bin(rknpu2::float16* data, size_t count) {
     printf("Saved to %s\n", filename);
 }
 
-int SimpleBEV::infer(unsigned char* input_data)
+rknpu2::float16 * SimpleBEV::infer(unsigned char* input_data)
 {
     std::lock_guard<std::mutex> lock(mtx);
     memcpy(input_mems->virt_addr, input_data, encoder_input_attrs[0].size);
@@ -368,7 +368,7 @@ int SimpleBEV::infer(unsigned char* input_data)
         // auto* out_data_decoder = (rknpu2::float16 *)output_mems_decoder[2]->virt_addr;
         // visualize_bev_grid(out_data_decoder, 96, 96);
 
-    return 1;
+    return (rknpu2::float16 *)output_mems_decoder[2]->virt_addr;
 }
 
 int SimpleBEV::init_flat_idx_mems() {
@@ -453,42 +453,6 @@ int SimpleBEV::query_output_attributes(rknn_context ctx,
 
 int SimpleBEV::get_input_size() const {
     return input_size;
-}
-
-void SimpleBEV::visualize_bev_grid(rknpu2::float16* bev_data, int width, int height) {
-    // 创建OpenCV矩阵
-    cv::Mat bev_image(height, width, CV_8UC3);
-    
-    // 添加数据调试信息
-    float min_val = FLT_MAX, max_val = -FLT_MAX;
-    float sigmoid_min = FLT_MAX, sigmoid_max = -FLT_MAX;
-
-    // 对每个像素进行sigmoid处理和二值化
-    for (int y = 0; y < height; y++) {
-        for (int x = 0; x < width; x++) {
-            int idx = y * width + x;            
-            float raw_val = static_cast<float>(bev_data[idx]);                        
-            // Sigmoid激活函数: 1 / (1 + exp(-x))
-            float sigmoid_val = 1.0f / (1.0f + std::exp(-raw_val));                        
-            // 二值化：>0.5为可行驶区域(白色)，<=0.5为不可行驶区域(黑色)
-            uchar pixel_val = (sigmoid_val > 0.5f) ? 255 : 0;            
-            // 设置RGB值
-            bev_image.at<cv::Vec3b>(y, x) = cv::Vec3b(pixel_val, pixel_val, pixel_val);
-        }
-    }
-    bev_image.at<cv::Vec3b>(47, 47) = cv::Vec3b(0, 0, 255);
-    bev_image.at<cv::Vec3b>(48, 48) = cv::Vec3b(0, 0, 255);
-    bev_image.at<cv::Vec3b>(48, 47) = cv::Vec3b(0, 0, 255);
-    bev_image.at<cv::Vec3b>(47, 48) = cv::Vec3b(0, 0, 255);
-    
-    // 放大显示图像，便于观察细节 (96x96 -> 480x480)
-    // cv::Mat enlarged_image;
-    // cv::resize(bev_image, enlarged_image, cv::Size(480, 480), 0, 0, cv::INTER_NEAREST);
-
-    // 直接显示图像
-    cv::imshow("BEV Inderence", bev_image);
-    cv::waitKey(1); // 非阻塞显示，允许实时更新
-    printf("BEV网格已显示 (白色=可行驶，黑色=不可行驶)\n");
 }
 
 SimpleBEV::~SimpleBEV()

@@ -328,32 +328,32 @@ int SimpleBEV::infer(unsigned char* input_data)
     }
 
 
-    for(int i=0; i<encoder_io_num.n_output; i++){
+    // for(int i=0; i<encoder_io_num.n_output; i++){
         
-        printf("encoder output[%d] shape: [", i);
-        for(int j=0; j<encoder_output_attrs[i].n_dims; j++){
-            printf("%d ", encoder_output_attrs[i].dims[j]);
-        }
-        printf("]\n");
+    //     printf("encoder output[%d] shape: [", i);
+    //     for(int j=0; j<encoder_output_attrs[i].n_dims; j++){
+    //         printf("%d ", encoder_output_attrs[i].dims[j]);
+    //     }
+    //     printf("]\n");
         
-        auto* out_data = (rknpu2::float16 *)this->output_mems_encoder[i]->virt_addr;
-        for(int k=0; k<10; k++){ // 示例只打印前10个数据
-            printf("%f ", (float)out_data[k]);
-        }
-        printf("\n...\n");
-    }
+    //     auto* out_data = (rknpu2::float16 *)this->output_mems_encoder[i]->virt_addr;
+    //     for(int k=0; k<10; k++){ // 示例只打印前10个数据
+    //         printf("%f ", (float)out_data[k]);
+    //     }
+    //     printf("\n...\n");
+    // }
 
-        auto* out_data1 = (int8_t *)output_mems_grid_sample[0]->virt_addr;
-        for(int k=0; k<10; k++){ // 示例只打印前10个数据
-            printf("%d ", out_data1[k]);
-        }
-        printf("\n...\n");
+    //     auto* out_data1 = (int8_t *)output_mems_grid_sample[0]->virt_addr;
+    //     for(int k=0; k<10; k++){ // 示例只打印前10个数据
+    //         printf("%d ", out_data1[k]);
+    //     }
+    //     printf("\n...\n");
 
-        auto* out_data2 = (rknpu2::float16 *)output_mems_grid_sample[1]->virt_addr;
-        for(int k=0; k<10; k++){ // 示例只打印前10个数据
-            printf("%f ", (float)out_data2[k]);
-        }
-        printf("\n...\n");
+    //     auto* out_data2 = (rknpu2::float16 *)output_mems_grid_sample[1]->virt_addr;
+    //     for(int k=0; k<10; k++){ // 示例只打印前10个数据
+    //         printf("%f ", (float)out_data2[k]);
+    //     }
+    //     printf("\n...\n");
 
         for(int i=0; i<decoder_io_num.n_output; i++){
             printf("decoder output[%d] data: ", i);
@@ -365,8 +365,8 @@ int SimpleBEV::infer(unsigned char* input_data)
         }
         
         // 对decoder的第2个输出进行BEV可视化 (96x96的可行驶区域分割结果)
-        auto* out_data_decoder = (rknpu2::float16 *)output_mems_decoder[2]->virt_addr;
-        visualize_bev_grid(out_data_decoder, 96, 96);
+        // auto* out_data_decoder = (rknpu2::float16 *)output_mems_decoder[2]->virt_addr;
+        // visualize_bev_grid(out_data_decoder, 96, 96);
 
     return 1;
 }
@@ -462,71 +462,31 @@ void SimpleBEV::visualize_bev_grid(rknpu2::float16* bev_data, int width, int hei
     // 添加数据调试信息
     float min_val = FLT_MAX, max_val = -FLT_MAX;
     float sigmoid_min = FLT_MAX, sigmoid_max = -FLT_MAX;
-    int white_pixels = 0, black_pixels = 0;
-    
+
     // 对每个像素进行sigmoid处理和二值化
     for (int y = 0; y < height; y++) {
         for (int x = 0; x < width; x++) {
-            int idx = y * width + x;
-            
-            float raw_val = static_cast<float>(bev_data[idx]);
-            
-            // 统计原始数据范围
-            min_val = std::min(min_val, raw_val);
-            max_val = std::max(max_val, raw_val);
-            
+            int idx = y * width + x;            
+            float raw_val = static_cast<float>(bev_data[idx]);                        
             // Sigmoid激活函数: 1 / (1 + exp(-x))
-            float sigmoid_val = 1.0f / (1.0f + std::exp(-raw_val));
-            
-            // 统计sigmoid后的范围
-            sigmoid_min = std::min(sigmoid_min, sigmoid_val);
-            sigmoid_max = std::max(sigmoid_max, sigmoid_val);
-            
+            float sigmoid_val = 1.0f / (1.0f + std::exp(-raw_val));                        
             // 二值化：>0.5为可行驶区域(白色)，<=0.5为不可行驶区域(黑色)
-            uchar pixel_val = (sigmoid_val > 0.5f) ? 255 : 0;
-            
-            if (pixel_val == 255) white_pixels++;
-            else black_pixels++;
-            
+            uchar pixel_val = (sigmoid_val > 0.5f) ? 255 : 0;            
             // 设置RGB值
             bev_image.at<cv::Vec3b>(y, x) = cv::Vec3b(pixel_val, pixel_val, pixel_val);
         }
     }
-    
-    // 打印调试信息
-    printf("=== BEV数据分析 ===\n");
-    printf("原始数据范围: [%.6f, %.6f]\n", min_val, max_val);
-    printf("Sigmoid后范围: [%.6f, %.6f]\n", sigmoid_min, sigmoid_max);
-    printf("像素统计: 白色=%d, 黑色=%d (总计=%d)\n", white_pixels, black_pixels, width*height);
-    printf("可行驶区域比例: %.2f%%\n", (float)white_pixels / (width*height) * 100.0f);
-    
-    // 如果全黑，尝试显示原始sigmoid值的灰度图
-    if (white_pixels == 0) {
-        printf("检测到全黑输出，显示原始sigmoid值的灰度图...\n");
-        cv::Mat sigmoid_image(height, width, CV_8UC3);
-        for (int y = 0; y < height; y++) {
-            for (int x = 0; x < width; x++) {
-                int idx = y * width + x;
-                float raw_val = static_cast<float>(bev_data[idx]);
-                float sigmoid_val = 1.0f / (1.0f + std::exp(-raw_val));
-                uchar gray_val = (uchar)(sigmoid_val * 255.0f);
-                sigmoid_image.at<cv::Vec3b>(y, x) = cv::Vec3b(gray_val, gray_val, gray_val);
-            }
-        }
-        
-        // 放大并显示sigmoid灰度图
-        cv::Mat enlarged_sigmoid;
-        cv::resize(sigmoid_image, enlarged_sigmoid, cv::Size(480, 480), 0, 0, cv::INTER_NEAREST);
-        cv::imshow("BEV Sigmoid灰度图", enlarged_sigmoid);
-    }
+    bev_image.at<cv::Vec3b>(47, 47) = cv::Vec3b(0, 0, 255);
+    bev_image.at<cv::Vec3b>(48, 48) = cv::Vec3b(0, 0, 255);
+    bev_image.at<cv::Vec3b>(48, 47) = cv::Vec3b(0, 0, 255);
+    bev_image.at<cv::Vec3b>(47, 48) = cv::Vec3b(0, 0, 255);
     
     // 放大显示图像，便于观察细节 (96x96 -> 480x480)
-    cv::Mat enlarged_image;
-    cv::resize(bev_image, enlarged_image, cv::Size(480, 480), 0, 0, cv::INTER_NEAREST);
-    cv::imwrite("bev_result.jpg", bev_image);
+    // cv::Mat enlarged_image;
+    // cv::resize(bev_image, enlarged_image, cv::Size(480, 480), 0, 0, cv::INTER_NEAREST);
 
     // 直接显示图像
-    cv::imshow("BEV 可行驶区域网格", bev_image);
+    cv::imshow("BEV Inderence", bev_image);
     cv::waitKey(1); // 非阻塞显示，允许实时更新
     printf("BEV网格已显示 (白色=可行驶，黑色=不可行驶)\n");
 }

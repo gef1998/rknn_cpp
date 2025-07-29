@@ -3,14 +3,14 @@
 
 MultiCameraSubscriber::MultiCameraSubscriber(ros::NodeHandle& nh, const ImageCallback& callback)
     : nh_(nh), callback_(callback), running_(false), frame_count_(0),
-        front_left_sub_(nh_, "/front/left/image_raw", 1),
-        front_right_sub_(nh_, "/front/right/image_raw", 1),
-        right_left_sub_(nh_, "/right/left/image_raw", 1),
-        right_right_sub_(nh_, "/right/right/image_raw", 1),
-        back_left_sub_(nh_, "/back/left/image_raw", 1),
-        back_right_sub_(nh_, "/back/right/image_raw", 1),
-        left_left_sub_(nh_, "/left/left/image_raw", 1),
-        left_right_sub_(nh_, "/left/right/image_raw", 1)
+        front_left_sub_(nh_, "/front/left/image_raw", 5),
+        front_right_sub_(nh_, "/front/right/image_raw", 5),
+        right_left_sub_(nh_, "/right/left/image_raw", 5),
+        right_right_sub_(nh_, "/right/right/image_raw", 5),
+        back_left_sub_(nh_, "/back/left/image_raw", 5),
+        back_right_sub_(nh_, "/back/right/image_raw", 5),
+        left_left_sub_(nh_, "/left/left/image_raw", 5),
+        left_right_sub_(nh_, "/left/right/image_raw", 5)
 {
     // 分配输出缓冲区
     output_buffer_ = std::make_unique<unsigned char[]>(TOTAL_SIZE);
@@ -25,7 +25,6 @@ MultiCameraSubscriber::MultiCameraSubscriber(ros::NodeHandle& nh, const ImageCal
     // 注册同步回调
     sync_->registerCallback(boost::bind(&MultiCameraSubscriber::imageCallback, this, _1, _2, _3, _4, _5, _6, _7, _8));
     
-    last_fps_time_ = ros::Time::now();
     
     ROS_INFO("Multi-camera subscriber initialized");
     ROS_INFO("Subscribed topics:");
@@ -85,28 +84,15 @@ void MultiCameraSubscriber::imageCallback(
         images.push_back(preprocessImage(back_right));
         images.push_back(preprocessImage(left_left));
         images.push_back(preprocessImage(left_right));
-        
         // 合并图像
         mergeImages(images, output_buffer_.get());
-        
         // 调用回调函数进行推理（npu推理）
         if (callback_) {
             callback_(output_buffer_.get());
         }
-        
         // 更新统计信息
         frame_count_++;
         
-        // 每100帧打印一次FPS
-        if (frame_count_ % 100 == 0) {
-            ros::Time current_time = ros::Time::now();
-            double elapsed = (current_time - last_fps_time_).toSec();
-            if (elapsed > 0) {
-                double fps = 100.0 / elapsed;
-                ROS_INFO("Multi-camera processing FPS: %.2f", fps);
-                last_fps_time_ = current_time;
-            }
-        }
         
     } catch (const std::exception& e) {
         ROS_ERROR("Image processing error: %s", e.what());

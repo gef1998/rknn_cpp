@@ -31,11 +31,11 @@ void imageProcessingCallback(unsigned char* merged_image_data) {
         return;
     }
     
-    // 尝试获取推理结果
-    int result;
-    if (g_pool->get(result) == 0) {
-        ROS_DEBUG("Inference Competed, res: %d", result);
-    }
+    // // 尝试获取推理结果
+    // int result;
+    // if (g_pool->get(result) == 0) {
+    //     ROS_INFO("Inference Competed, res: %d", result);
+    // }
 }
 
 int main(int argc, char **argv) {
@@ -70,7 +70,7 @@ int main(int argc, char **argv) {
     ROS_INFO("  Flat Index: %s", modelPaths.flat_idx_path.c_str());
     
     // 从ROS参数服务器获取线程数
-    int threadNum = 1;
+    int threadNum = 3;
     ROS_INFO("RKNN thread pool size: %d", threadNum);
     
     try {
@@ -107,7 +107,7 @@ int main(int argc, char **argv) {
                  MultiCameraSubscriber::TOTAL_SIZE);
         
         // 主循环
-        ros::Rate loop_rate(5); // 100Hz TODO:对帧率的影响
+        ros::Rate loop_rate(20); // 100Hz TODO:对帧率的影响
         while (ros::ok() && g_running) {
             ros::spinOnce();
             
@@ -125,7 +125,6 @@ int main(int argc, char **argv) {
                     beforeTime = currentTime;
                 }
             }
-            
             loop_rate.sleep();
         }
         

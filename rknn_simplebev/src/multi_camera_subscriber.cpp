@@ -118,7 +118,9 @@ cv::Mat MultiCameraSubscriber::preprocessImage(const sensor_msgs::ImageConstPtr&
     } else {
         resized_image = image.clone();
     }
-        
+    // // 可视化resized_image
+    // cv::imshow("Resized Image", resized_image);
+    // cv::waitKey(0); // 非阻塞显示，允许实时更新
     return resized_image;
 }
 

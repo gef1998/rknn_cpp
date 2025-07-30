@@ -37,7 +37,7 @@ void imageProcessingCallback(unsigned char* merged_image_data) {
 
 void visualize_bev_grid(rknpu2::float16* bev_data, int width, int height) {
   // 创建OpenCV矩阵
-  cv::Mat bev_image(width, height, CV_8UC3);
+  cv::Mat bev_image(height, width, CV_8UC3);
   
   // 对每个像素进行sigmoid处理和二值化
   for (int y = 0; y < height; y++) {
@@ -53,7 +53,7 @@ void visualize_bev_grid(rknpu2::float16* bev_data, int width, int height) {
           uchar pixel_val = (sigmoid_val > 0.5f) ? 255 : 0;
           
           // 设置RGB值
-          bev_image.at<cv::Vec3b>(x, y) = cv::Vec3b(pixel_val, pixel_val, pixel_val);
+          bev_image.at<cv::Vec3b>(y, x) = cv::Vec3b(pixel_val, pixel_val, pixel_val);
       }
   }
   

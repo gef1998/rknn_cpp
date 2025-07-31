@@ -1,107 +1,112 @@
-# SimpleBEV多摄像头功能快速开始
+# SimpleBEV 快速开始指南
 
-## 快速测试步骤
+## 🚀 快速集成BEV到LaserScan发布功能
 
-### 1. 编译项目
-```bash
-cd rknn_simplebev
-mkdir -p build
-cd build
-cmake ..
-make -j$(nproc)
-cd ..
+### 1. 最简单的使用方式
+
+```cpp
+#include <ros/ros.h>
+#include "bev_publisher.hpp"
+#include "simplebev.hpp"
+
+int main(int argc, char** argv) {
+    ros::init(argc, argv, "my_bev_node");
+    ros::NodeHandle nh;
+    
+    // ✅ 第1步：创建BEV发布器
+    BEVPublisher bev_publisher(nh, "/bev_perception/grid_pc");
+    
+    // ✅ 第2步：设置您的变换矩阵
+    const float base_T_ref[16] = {
+        9.5396e-04f,  -1.2006e-03f, 9.9983e-02f, -4.7392e+00f,
+        -9.9907e-02f, -3.1694e-03f, 8.8558e-04f,  4.6638e+00f,
+        4.2110e-03f,  -7.4923e-02f, -1.6396e-03f, 2.6543e-01f,
+        0.0f,  0.0f,  0.0f,  1.0f
+    };
+    bev_publisher.setTransformMatrix(base_T_ref);
+    
+    // ✅ 第3步：在您现有的推理循环中添加发布
+    ros::Rate rate(10);
+    while (ros::ok()) {
+        // 您现有的SimpleBEV推理代码
+        rknpu2::float16* bev_result = your_simplebev.infer_multi_sensor(image_data, pointcloud_data);
+        
+        // 🎯 只需添加这一行：发布结果
+        if (bev_result != nullptr) {
+            bev_publisher.publishBEVResult(your_simplebev, bev_result);
+        }
+        
+        ros::spinOnce();
+        rate.sleep();
+    }
+    
+    return 0;
+}
 ```
 
-### 2. 准备模型文件
-确保你有以下模型文件：
-- `encoder.rknn` - 编码器模型
-- `grid_sample.rknn` - 网格采样模型  
-- `flat_idx.bin` - 扁平索引文件
-- `decoder.rknn` - 解码器模型
+### 2. 查看发布结果
 
-### 3. 启动测试摄像头发布器
-在第一个终端中运行：
 ```bash
-# 启动ROS master
-roscore
+# 启动您的节点
+rosrun your_package your_bev_node
+
+# 查看发布的LaserScan数据
+rostopic echo /bev_perception/grid_pc
+
+# 检查发布频率
+rostopic hz /bev_perception/grid_pc
 ```
 
-在第二个终端中运行：
-```bash
-# 启动测试摄像头发布器
-cd rknn_simplebev
-python3 test_camera_publisher.py
+### 3. 在RViz中可视化
+
+1. 启动RViz：`rviz`
+2. 添加LaserScan显示
+3. 设置Topic为：`/bev_perception/grid_pc`
+4. 设置Fixed Frame为：`base_link`
+
+## 📁 需要包含的头文件
+
+```cpp
+#include "bev_publisher.hpp"  // BEV发布器
+#include "simplebev.hpp"      // 您现有的SimpleBEV类
 ```
 
-### 4. 启动SimpleBEV节点
-在第三个终端中运行：
-```bash
-cd rknn_simplebev/build
-../launch_multicamera.sh ../model/encoder.rknn ../model/grid_sample.rknn ../model/flat_idx.bin ../model/decoder.rknn
+## 🔧 CMakeLists.txt 配置
+
+```cmake
+# 添加新的源文件
+add_executable(your_bev_node
+    src/your_main.cpp
+    rknn_simplebev/src/bev_publisher.cpp
+    rknn_simplebev/src/bev_utils.cpp
+    # ... 其他源文件
+)
+
+# 包含头文件路径
+target_include_directories(your_bev_node PRIVATE
+    rknn_simplebev/include
+    # ... 其他包含路径
+)
+
+# 链接库
+target_link_libraries(your_bev_node
+    ${catkin_LIBRARIES}
+    # ... 其他库
+)
 ```
 
-## 验证运行
+## ⚡ 关键点
 
-### 检查topics
-```bash
-# 查看图像topics
-rostopic list | grep image_raw
+1. **无需修改现有推理代码** - 只需在推理后添加发布调用
+2. **自动处理坐标转换** - 使用您提供的base_T_ref矩阵
+3. **标准ROS话题** - 发布到 `/bev_perception/grid_pc`
+4. **96×96网格支持** - 自动处理您的BEV网格格式
 
-# 检查图像发布频率
-rostopic hz /back/left/image_raw
+## 🎯 您只需要做的事情
 
-# 查看图像信息
-rostopic info /back/left/image_raw
-```
+1. ✅ 包含头文件：`#include "bev_publisher.hpp"`
+2. ✅ 创建发布器：`BEVPublisher bev_publisher(nh, "/bev_perception/grid_pc");`
+3. ✅ 设置变换矩阵：`bev_publisher.setTransformMatrix(base_T_ref);`
+4. ✅ 发布结果：`bev_publisher.publishBEVResult(simplebev, bev_result);`
 
-### 监控性能
-SimpleBEV节点会输出以下信息：
-- 多摄像头处理FPS
-- 推理FPS
-- 总体平均FPS
-
-### 检查日志
-```bash
-# 查看ROS日志
-roslog list
-```
-
-## 故障排除
-
-### 常见问题
-
-1. **编译错误**
-   - 检查ROS环境：`echo $ROS_DISTRO`
-   - 安装依赖：`sudo apt install ros-$ROS_DISTRO-cv-bridge ros-$ROS_DISTRO-image-transport`
-
-2. **模型文件不存在**
-   - 确认模型文件路径正确
-   - 检查文件权限
-
-3. **图像topics未发布**
-   - 确认测试发布器正在运行
-   - 检查网络连接
-
-4. **推理失败**
-   - 检查RKNN运行时库
-   - 验证模型格式
-
-### 调试命令
-```bash
-# 查看节点状态
-rosnode list
-rosnode info /rknn_simplebev_multicamera
-
-# 检查参数
-rosparam list | grep simplebev
-```
-
-## 下一步
-
-测试成功后，你可以：
-1. 替换测试发布器为真实摄像头数据
-2. 调整图像预处理参数
-3. 优化推理性能
-4. 集成到你的应用中
-
-更多详细信息请参考 `README_MULTICAMERA.md`。 
+就这么简单！🎉 

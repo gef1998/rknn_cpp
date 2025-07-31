@@ -8,6 +8,9 @@
 #include <opencv2/opencv.hpp>
 #include "fp16/Float16.h"
 #include "multi_sensor_data.hpp"
+#include "bev_utils.hpp"
+#include <sensor_msgs/LaserScan.h>
+#include <Eigen/Dense>
 
 // 常量定义
 constexpr int kEncoderInputNum = 1;
@@ -79,6 +82,33 @@ public:
     
     // 重载：使用MultiSensorData结构的infer方法
     rknpu2::float16* infer(const MultiSensorData& sensor_data);
+    
+    // BEV网格处理和LaserScan转换方法
+    /**
+     * 将BEV推理结果转换为LaserScan消息
+     * @param bev_result: BEV推理结果(96x96网格)
+     * @param base_T_ref: 坐标变换矩阵(4x4)
+     * @param config: BEV配置参数
+     * @param frame_id: 目标坐标系
+     * @return LaserScan消息
+     */
+    sensor_msgs::LaserScan bevToLaserScan(const rknpu2::float16* bev_result,
+                                         const Eigen::Matrix4f& base_T_ref,
+                                         const bev_utils::BEVConfig& config = bev_utils::BEVConfig(),
+                                         const std::string& frame_id = "base_link");
+    
+    /**
+     * 便捷方法：从矩阵数组创建变换矩阵并转换为LaserScan
+     * @param bev_result: BEV推理结果
+     * @param transform_array: 4x4变换矩阵(行优先数组)
+     * @param config: BEV配置参数
+     * @param frame_id: 目标坐标系
+     * @return LaserScan消息
+     */
+    sensor_msgs::LaserScan bevToLaserScan(const rknpu2::float16* bev_result,
+                                         const float transform_array[16],
+                                         const bev_utils::BEVConfig& config = bev_utils::BEVConfig(),
+                                         const std::string& frame_id = "base_link");
 
     ~SimpleBEV();
 

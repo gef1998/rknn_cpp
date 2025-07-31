@@ -65,6 +65,7 @@ add_executable(rknn_simplebev
         src/main.cc
         src/simplebev.cc
         src/multi_sensor_subscriber.cpp
+        src/bev_utils.cpp
 )
 
 target_link_libraries(rknn_simplebev

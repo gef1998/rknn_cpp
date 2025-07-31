@@ -10,6 +10,12 @@
 #include "multi_sensor_subscriber.hpp"
 #include "multi_sensor_data.hpp"
 #include "fp16/Float16.h"
+#include "bev_publisher.hpp"
+
+#define BASE_T_REF {9.5396e-04f,  -1.2006e-03f, 9.9983e-02f, -4.7392e+00f,
+  -9.9907e-02f, -3.1694e-03f, 8.8558e-04f,  4.6638e+00f,
+  4.2110e-03f,  -7.4923e-02f, -1.6396e-03f, 2.6543e-01f,
+  0.0f,  0.0f,  0.0f,  1.0f}
 
 // 全局变量
 std::unique_ptr<rknnPool<SimpleBEV, MultiSensorData, rknpu2::float16*>> g_pool;
@@ -76,7 +82,11 @@ int main(int argc, char **argv) {
     // 初始化ROS节点
     ros::init(argc, argv, "rknn_simplebev_multi_sensor");
     ros::NodeHandle nh;
-    
+    BEVPublisher bev_publisher(nh, "/bev_perception/grid_pc");
+    // 2. 设置您的base_T_ref变换矩阵
+    const float base_T_ref[16] = BASE_T_REF;
+    bev_publisher.setTransformMatrix(base_T_ref);
+
     // 设置信号处理
     signal(SIGINT, signalHandler);
     signal(SIGTERM, signalHandler);
@@ -158,6 +168,7 @@ int main(int argc, char **argv) {
                 // 显示BEV可视化结果
                 if (result != nullptr) {
                     visualize_bev_grid(result, 96, 96);
+                    bev_publisher.publishBEVResult(result);
                 }
                 
                 // 每120帧打印一次统计信息

@@ -516,6 +516,33 @@ rknpu2::float16* SimpleBEV::infer(const MultiSensorData& sensor_data) {
     return infer_multi_sensor(sensor_data.image_data, sensor_data.pointcloud_data);
 }
 
+sensor_msgs::LaserScan SimpleBEV::bevToLaserScan(const rknpu2::float16* bev_result,
+                                                 const Eigen::Matrix4f& base_T_ref,
+                                                 const bev_utils::BEVConfig& config,
+                                                 const std::string& frame_id) {
+    // 步骤1: 将BEV网格转换为点云
+    std::vector<bev_utils::Point3D> points = bev_utils::bevGridToPointCloud(bev_result, config);
+    
+    // 步骤2: 应用坐标变换
+    std::vector<bev_utils::Point3D> transformed_points = bev_utils::transformPointCloud(points, base_T_ref);
+    
+    // 步骤3: 转换为LaserScan消息
+    sensor_msgs::LaserScan scan = bev_utils::pointCloudToLaserScan(transformed_points, frame_id);
+    
+    return scan;
+}
+
+sensor_msgs::LaserScan SimpleBEV::bevToLaserScan(const rknpu2::float16* bev_result,
+                                                 const float transform_array[16],
+                                                 const bev_utils::BEVConfig& config,
+                                                 const std::string& frame_id) {
+    // 从数组创建变换矩阵
+    Eigen::Matrix4f transform_matrix = bev_utils::createTransformMatrix(transform_array);
+    
+    // 调用主要方法
+    return bevToLaserScan(bev_result, transform_matrix, config, frame_id);
+}
+
 int SimpleBEV::init_flat_idx_mems() {
     if (model_paths_.flat_idx_path.empty()) {
         std::cerr << "Error: flat_idx_path is empty!" << std::endl;

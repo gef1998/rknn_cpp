@@ -4,6 +4,8 @@
 #include <iostream>
 #include <cstring>
 #include <cmath>
+#include <thread>
+#include <future>
 
 #include "coreNum.hpp"
 #include "simplebev.hpp"
@@ -88,27 +90,34 @@ SimpleBEV::SimpleBEV(const ModelPaths& paths)
 int SimpleBEV::init(rknn_context *encoder_ctx_in, 
                     rknn_context *grid_sample_ctx_in, 
                     rknn_context *decoder_ctx_in, 
+                    rknn_context *lasernet_ctx_in, 
                     rknn_tensor_mem* flat_idx_mems_in,
                     bool share_weight){
     printf("Loading model...\n");
     int encoder_data_size = 0;
     int grid_sample_data_size = 0;
     int decoder_data_size = 0;
+    int lasernet_data_size = 0;
 
     encoder_data = load_model(model_paths_.encoder_path.c_str(), &encoder_data_size);
     grid_sample_data = load_model(model_paths_.grid_sample_path.c_str(), &grid_sample_data_size);
     decoder_data = load_model(model_paths_.decoder_path.c_str(), &decoder_data_size);
+    lasernet_data = load_model(model_paths_.lasernet_path.c_str(), &lasernet_data_size);
 
     // 模型参数复用/Model parameter reuse
     if (share_weight == true){
         ret = rknn_dup_context(encoder_ctx_in, &encoder_ctx);
         ret = rknn_dup_context(grid_sample_ctx_in, &grid_sample_ctx);
-        ret = rknn_dup_context(decoder_ctx_in, &decoder_ctx);}
+        ret = rknn_dup_context(decoder_ctx_in, &decoder_ctx);
+        ret = rknn_dup_context(lasernet_ctx_in, &lasernet_ctx);
+    }
     else{
         ret = rknn_init(&encoder_ctx, encoder_data, encoder_data_size, 0, NULL);
         ret = rknn_init(&grid_sample_ctx, grid_sample_data, grid_sample_data_size, 0, NULL);
-        ret = rknn_init(&decoder_ctx, decoder_data, decoder_data_size, 0, NULL);}
-        
+        ret = rknn_init(&decoder_ctx, decoder_data, decoder_data_size, 0, NULL);
+        ret = rknn_init(&lasernet_ctx, lasernet_data, lasernet_data_size, 0, NULL);
+        }
+
     if (ret < 0)
     {
         printf("rknn_init error ret=%d\n", ret);
@@ -132,6 +141,7 @@ int SimpleBEV::init(rknn_context *encoder_ctx_in,
     ret = rknn_set_core_mask(encoder_ctx, core_mask);
     ret = rknn_set_core_mask(grid_sample_ctx, core_mask);
     ret = rknn_set_core_mask(decoder_ctx, core_mask);
+    ret = rknn_set_core_mask(lasernet_ctx, core_mask);
 
     if (ret < 0)
     {
@@ -152,14 +162,17 @@ int SimpleBEV::init(rknn_context *encoder_ctx_in,
     query_model_io_num(encoder_ctx, encoder_io_num, "encoder");
     query_model_io_num(grid_sample_ctx, grid_sample_io_num, "grid_sample");
     query_model_io_num(decoder_ctx, decoder_io_num, "decoder");
+    query_model_io_num(lasernet_ctx, lasernet_io_num, "lasernet");
 
     query_input_attributes(encoder_ctx, encoder_io_num, "encoder", encoder_input_attrs.data());
     query_input_attributes(grid_sample_ctx, grid_sample_io_num, "grid_sample", grid_sample_input_attrs.data());
     query_input_attributes(decoder_ctx, decoder_io_num, "decoder", decoder_input_attrs.data());
+    query_input_attributes(lasernet_ctx, lasernet_io_num, "lasernet", lasernet_input_attrs.data());
 
     query_output_attributes(encoder_ctx, encoder_io_num, "encoder", encoder_output_attrs.data());
     query_output_attributes(grid_sample_ctx, grid_sample_io_num, "grid_sample", grid_sample_output_attrs.data());
     query_output_attributes(decoder_ctx, decoder_io_num, "decoder", decoder_output_attrs.data());
+    query_output_attributes(lasernet_ctx, lasernet_io_num, "lasernet", lasernet_output_attrs.data());
 
     if (share_weight == true){
         this->flat_idx_mems = flat_idx_mems_in;
@@ -167,22 +180,22 @@ int SimpleBEV::init(rknn_context *encoder_ctx_in,
     else{
         this->init_flat_idx_mems();
     }
-    input_size = encoder_input_attrs[0].size;
-    input_mems = rknn_create_mem(grid_sample_ctx, encoder_input_attrs[0].size_with_stride);
-        // Copy input data to input tensor memory
+
+    input_img_mems = rknn_create_mem(encoder_ctx, encoder_input_attrs[0].size_with_stride);
+    // Copy input data to input tensor memory
     int width  = encoder_input_attrs[0].dims[2];
     int stride = encoder_input_attrs[0].w_stride;
     if (width != stride) {
         printf("width != stride");
         return -1;}
         // if (width == stride) {
-        //   memcpy(input_mems->virt_addr, input_data, encoder_input_attrs[0].size);
+        //   memcpy(input_img_mems->virt_addr, input_data, encoder_input_attrs[0].size);
         // } else { 
         //     printf("[ERROR!] width != stride");
         //   }
     encoder_input_attrs[0].type = (rknn_tensor_type)RKNN_TENSOR_UINT8;
     encoder_input_attrs[0].fmt = (rknn_tensor_format)RKNN_TENSOR_NHWC;
-    ret = rknn_set_io_mem(encoder_ctx, input_mems, &encoder_input_attrs[0]);
+    ret = rknn_set_io_mem(encoder_ctx, input_img_mems, &encoder_input_attrs[0]);
 
     for (uint32_t i = 0; i < encoder_io_num.n_output; ++i) {
       int output_size = encoder_output_attrs[i].n_elems * 2;
@@ -198,6 +211,39 @@ int SimpleBEV::init(rknn_context *encoder_ctx_in,
             return -1;
         }
     }
+
+    input_laser_mems = rknn_create_mem(lasernet_ctx, lasernet_input_attrs[0].size_with_stride);
+    // Copy input data to input tensor memory
+    width  = lasernet_input_attrs[0].dims[2];
+    stride = lasernet_input_attrs[0].w_stride;
+    printf("width = %d, stride = %d\n", width, stride);
+    if (width != stride) {
+        printf("width != stride");
+        return -1;}
+        // if (width == stride) {
+        //   memcpy(input_img_mems->virt_addr, input_data, encoder_input_attrs[0].size);
+        // } else { 
+        //     printf("[ERROR!] width != stride");
+        //   }
+    lasernet_input_attrs[0].type = (rknn_tensor_type)RKNN_TENSOR_FLOAT16;
+    lasernet_input_attrs[0].fmt = (rknn_tensor_format)RKNN_TENSOR_NHWC;
+    ret = rknn_set_io_mem(lasernet_ctx, input_laser_mems, &lasernet_input_attrs[0]);
+    for (uint32_t i = 0; i < lasernet_io_num.n_output; ++i) {
+        int output_size = lasernet_output_attrs[i].n_elems * 2;
+        this->output_mems_lasernet[i]  = rknn_create_mem(lasernet_ctx, output_size);
+      }
+
+    // Set output tensor memory
+    for (uint32_t i = 0; i < lasernet_io_num.n_output; ++i) {
+        lasernet_output_attrs[i].type = RKNN_TENSOR_FLOAT16;
+        lasernet_output_attrs[i].fmt = RKNN_TENSOR_NHWC;
+        ret = rknn_set_io_mem(lasernet_ctx, output_mems_lasernet[i], &lasernet_output_attrs[i]);
+        if (ret < 0) {
+            printf("rknn_set_io_mem fail! ret=%d\n", ret);
+            return -1;
+        }
+    }
+
     grid_sample_input_attrs[0].type = (rknn_tensor_type)RKNN_TENSOR_FLOAT16;
     grid_sample_input_attrs[0].fmt = (rknn_tensor_format)RKNN_TENSOR_NHWC;
     grid_sample_input_attrs[1].type = (rknn_tensor_type)RKNN_TENSOR_FLOAT16;
@@ -233,9 +279,15 @@ int SimpleBEV::init(rknn_context *encoder_ctx_in,
 
     decoder_input_attrs[0].type = (rknn_tensor_type)RKNN_TENSOR_FLOAT16;
     decoder_input_attrs[0].fmt = (rknn_tensor_format)RKNN_TENSOR_NHWC;
+    decoder_input_attrs[1].type = (rknn_tensor_type)RKNN_TENSOR_FLOAT16;
+    decoder_input_attrs[1].fmt = (rknn_tensor_format)RKNN_TENSOR_NHWC;
 
     // Set input tensor memory
     ret = rknn_set_io_mem(decoder_ctx, output_mems_grid_sample[0], &decoder_input_attrs[0]);
+    if (ret < 0) {
+        printf("rknn_set_io_mem fail! ret=%d\n", ret);
+    return -1;}
+    ret = rknn_set_io_mem(decoder_ctx, output_mems_lasernet[0], &decoder_input_attrs[1]);
     if (ret < 0) {
         printf("rknn_set_io_mem fail! ret=%d\n", ret);
     return -1;}
@@ -248,14 +300,6 @@ int SimpleBEV::init(rknn_context *encoder_ctx_in,
 
     decoder_output_attrs[0].type = RKNN_TENSOR_FLOAT16;
     decoder_output_attrs[0].fmt = RKNN_TENSOR_NCHW;    
-    decoder_output_attrs[1].type = RKNN_TENSOR_FLOAT16;
-    decoder_output_attrs[1].fmt = RKNN_TENSOR_NCHW;  
-    decoder_output_attrs[2].type = RKNN_TENSOR_FLOAT16;
-    decoder_output_attrs[2].fmt = RKNN_TENSOR_NCHW;  
-    decoder_output_attrs[3].type = RKNN_TENSOR_FLOAT16;
-    decoder_output_attrs[3].fmt = RKNN_TENSOR_NCHW;  
-    decoder_output_attrs[4].type = RKNN_TENSOR_FLOAT16;
-    decoder_output_attrs[4].fmt = RKNN_TENSOR_NCHW;
 
     // Set output tensor memory
     for (uint32_t i = 0; i < decoder_io_num.n_output; ++i) {
@@ -284,6 +328,11 @@ rknn_context *SimpleBEV::get_decoder_pctx()
     return &decoder_ctx;
 }
 
+rknn_context *SimpleBEV::get_lasernet_pctx()
+{
+    return &lasernet_ctx;
+}
+
 rknn_tensor_mem *SimpleBEV::get_flat_idx_mems()
 {
     return flat_idx_mems;
@@ -310,12 +359,98 @@ void save_float16_to_bin(rknpu2::float16* data, size_t count) {
     printf("Saved to %s\n", filename);
 }
 
-rknpu2::float16 * SimpleBEV::infer(unsigned char* input_data)
+// rknpu2::float16 * SimpleBEV::infer(unsigned char* input_data)
+// {
+//     std::lock_guard<std::mutex> lock(mtx);
+//     memcpy(input_img_mems->virt_addr, input_data, encoder_input_attrs[0].size);
+//     // 模型推理/Model inference
+//     ret = rknn_run(encoder_ctx, NULL);
+//     ret = rknn_run(grid_sample_ctx, NULL);
+//     if (ret < 0) {
+//       printf("grid_sample rknn_run fail! ret=%d\n", ret);
+//       return nullptr;
+//     }
+//     ret = rknn_run(decoder_ctx, NULL);
+//     if (ret < 0) {
+//       printf("decoder rknn_run fail! ret=%d\n", ret);
+//       return nullptr;
+//     }
+
+
+//     // for(int i=0; i<encoder_io_num.n_output; i++){
+        
+//     //     printf("encoder output[%d] shape: [", i);
+//     //     for(int j=0; j<encoder_output_attrs[i].n_dims; j++){
+//     //         printf("%d ", encoder_output_attrs[i].dims[j]);
+//     //     }
+//     //     printf("]\n");
+        
+//     //     auto* out_data = (rknpu2::float16 *)this->output_mems_encoder[i]->virt_addr;
+//     //     for(int k=0; k<10; k++){ // 示例只打印前10个数据
+//     //         printf("%f ", (float)out_data[k]);
+//     //     }
+//     //     printf("\n...\n");
+//     // }
+
+//     //     auto* out_data1 = (int8_t *)output_mems_grid_sample[0]->virt_addr;
+//     //     for(int k=0; k<10; k++){ // 示例只打印前10个数据
+//     //         printf("%d ", out_data1[k]);
+//     //     }
+//     //     printf("\n...\n");
+
+//     //     auto* out_data2 = (rknpu2::float16 *)output_mems_grid_sample[1]->virt_addr;
+//     //     for(int k=0; k<10; k++){ // 示例只打印前10个数据
+//     //         printf("%f ", (float)out_data2[k]);
+//     //     }
+//     //     printf("\n...\n");
+
+//         for(int i=0; i<decoder_io_num.n_output; i++){
+//             printf("decoder output[%d] data: ", i);
+//             auto* out_data_decoder = (rknpu2::float16 *)output_mems_decoder[i]->virt_addr;
+//             for(int k=0; k<10; k++){ // 示例只打印前10个数据
+//                 printf("%f ", (float)out_data_decoder[k]);
+//             }
+//             printf("\n...\n");
+//         }
+        
+//         // 对decoder的第2个输出进行BEV可视化 (96x96的可行驶区域分割结果)
+//         // auto* out_data_decoder = (rknpu2::float16 *)output_mems_decoder[2]->virt_addr;
+//         // visualize_bev_grid(out_data_decoder, 96, 96);
+
+//     return (rknpu2::float16 *)output_mems_decoder[2]->virt_addr;
+// }
+
+rknpu2::float16 * SimpleBEV::infer_multi_sensor(unsigned char* image_data, rknpu2::float16* pointcloud_data)
 {
-    std::lock_guard<std::mutex> lock(mtx);
-    memcpy(input_mems->virt_addr, input_data, encoder_input_attrs[0].size);
+    memcpy(input_img_mems->virt_addr, image_data, encoder_input_attrs[0].size);
+    memcpy(input_laser_mems->virt_addr, pointcloud_data, lasernet_input_attrs[0].size);
+
+    // rknpu2::float16* arr = new rknpu2::float16[73728];
+    // std::fill(arr, arr+73728, rknpu2::float16(-0.5f));
+    // memcpy(output_mems_lasernet[0]->virt_addr, arr, lasernet_output_attrs[0].size);
+
     // 模型推理/Model inference
-    ret = rknn_run(encoder_ctx, NULL);
+    // 并行执行两个模型推理
+    std::future<int> lasernet_future = std::async(std::launch::async, [this]() {
+        return rknn_run(this->lasernet_ctx, NULL);
+    });
+
+    std::future<int> encoder_future = std::async(std::launch::async, [this]() {
+        return rknn_run(this->encoder_ctx, NULL);
+    });
+
+    // 等待两个推理完成
+    int lasernet_ret = lasernet_future.get();
+    int encoder_ret = encoder_future.get();
+
+    if (encoder_ret < 0 || lasernet_ret < 0) {
+        printf("Parallel inference failed! encoder_ret=%d, grid_sample_ret=%d\n", 
+                encoder_ret, lasernet_ret);
+        return nullptr;
+    }
+
+    // ret = rknn_run(lasernet_ctx, NULL);
+    // ret = rknn_run(encoder_ctx, NULL);
     ret = rknn_run(grid_sample_ctx, NULL);
     if (ret < 0) {
       printf("grid_sample rknn_run fail! ret=%d\n", ret);
@@ -355,20 +490,30 @@ rknpu2::float16 * SimpleBEV::infer(unsigned char* input_data)
     //     }
     //     printf("\n...\n");
 
-        for(int i=0; i<decoder_io_num.n_output; i++){
-            printf("decoder output[%d] data: ", i);
-            auto* out_data_decoder = (rknpu2::float16 *)output_mems_decoder[i]->virt_addr;
-            for(int k=0; k<10; k++){ // 示例只打印前10个数据
-                printf("%f ", (float)out_data_decoder[k]);
-            }
-            printf("\n...\n");
-        }
-        
-        // 对decoder的第2个输出进行BEV可视化 (96x96的可行驶区域分割结果)
-        // auto* out_data_decoder = (rknpu2::float16 *)output_mems_decoder[2]->virt_addr;
-        // visualize_bev_grid(out_data_decoder, 96, 96);
+        // for(int i=0; i<decoder_io_num.n_output; i++){
+        //     printf("decoder output[%d] data: ", i);
+        //     auto* out_data_decoder = (rknpu2::float16 *)output_mems_decoder[i]->virt_addr;
+        //     for(int k=0; k<10; k++){ // 示例只打印前10个数据
+        //         printf("%f ", (float)out_data_decoder[k]);
+        //     }
+        //     printf("\n...\n");
+        // }
 
-    return (rknpu2::float16 *)output_mems_decoder[2]->virt_addr;
+        // auto* out_data_lasernet = (rknpu2::float16 *)output_mems_lasernet[0]->virt_addr;
+        // float sum = 0.0f;
+        // for(int k=0; k<73728; k++){ // 示例只打印前10个数据
+        //     sum += (float)out_data_lasernet[k] + 0.5f;
+        //     // printf("%f ", (float)out_data_lasernet[k]);
+        // }
+        // printf("lasernet output sum: %f\n", sum);
+        // printf("\n...\n");
+
+    return (rknpu2::float16 *)output_mems_decoder[0]->virt_addr;
+}
+
+// 重载的infer方法，使用MultiSensorData结构
+rknpu2::float16* SimpleBEV::infer(const MultiSensorData& sensor_data) {
+    return infer_multi_sensor(sensor_data.image_data, sensor_data.pointcloud_data);
 }
 
 int SimpleBEV::init_flat_idx_mems() {

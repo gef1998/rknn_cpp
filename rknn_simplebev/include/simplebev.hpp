@@ -7,20 +7,33 @@
 #include <array>
 #include <opencv2/opencv.hpp>
 #include "fp16/Float16.h"
+#include "multi_sensor_data.hpp"
 
 // 常量定义
 constexpr int kEncoderInputNum = 1;
+constexpr int kLaserNetInputNum = 1;
 constexpr int kGridSampleInputNum = 2;
-constexpr int kDecoderInputNum = 1;
+constexpr int kDecoderInputNum = 2;
+
+
 constexpr int kEncoderOutputNum = 1;
+constexpr int kLaserNetOutputNum = 1;
 constexpr int kGridSampleOutputNum = 2;
-constexpr int kDecoderOutputNum = 5;
+constexpr int kDecoderOutputNum = 1;
 
 // 类型别名
-using TensorAttrArrEncoder = std::array<rknn_tensor_attr, kEncoderInputNum>;
-using TensorAttrArrGridSample = std::array<rknn_tensor_attr, kGridSampleInputNum>;
-using TensorAttrArrDecoder = std::array<rknn_tensor_attr, kDecoderOutputNum>;
+using InputAttrArrEncoder = std::array<rknn_tensor_attr, kEncoderInputNum>;
+using InputAttrArrGridSample = std::array<rknn_tensor_attr, kGridSampleInputNum>;
+using InputAttrArrDecoder = std::array<rknn_tensor_attr, kDecoderInputNum>;
+using InputAttrArrLaserNet = std::array<rknn_tensor_attr, kLaserNetInputNum>;
+
+using OutputAttrArrEncoder = std::array<rknn_tensor_attr, kEncoderOutputNum>;
+using OutputAttrArrGridSample = std::array<rknn_tensor_attr, kGridSampleOutputNum>;
+using OutputAttrArrDecoder = std::array<rknn_tensor_attr, kDecoderOutputNum>;
+using OutputAttrArrLaserNet = std::array<rknn_tensor_attr, kLaserNetOutputNum>;
+
 using TensorMemArrEncoder = std::array<rknn_tensor_mem*, kEncoderOutputNum>;
+using TensorMemArrLaserNet = std::array<rknn_tensor_mem*, kLaserNetOutputNum>;
 using TensorMemArrGridSample = std::array<rknn_tensor_mem*, kGridSampleOutputNum>;
 using TensorMemArrDecoder = std::array<rknn_tensor_mem*, kDecoderOutputNum>;
 
@@ -34,7 +47,7 @@ static int saveFloat(const char *file_name, float *output, int element_size);
 class SimpleBEV {
 public:
     struct ModelPaths {
-        std::string encoder_path, grid_sample_path, decoder_path, flat_idx_path;
+        std::string encoder_path, grid_sample_path, decoder_path, flat_idx_path, lasernet_path;
     };
 
     explicit SimpleBEV(const ModelPaths& paths);
@@ -42,6 +55,7 @@ public:
     int init(rknn_context *encoder_ctx_in,
              rknn_context *grid_sample_ctx_in,
              rknn_context *decoder_ctx_in,
+             rknn_context *lasernet_ctx_in,
              rknn_tensor_mem* flat_idx_mems_in,
              bool share_weight);
 
@@ -49,13 +63,22 @@ public:
     rknn_context* get_encoder_pctx();
     rknn_context* get_grid_sample_pctx();
     rknn_context* get_decoder_pctx();
+    rknn_context* get_lasernet_pctx();
+
     rknn_tensor_mem* get_flat_idx_mems();
     int get_input_size() const;
 
     int query_model_io_num(rknn_context ctx, rknn_input_output_num &io_num, const char* ctx_name);
     int query_input_attributes(rknn_context ctx, rknn_input_output_num& io_num, const char* model_name, rknn_tensor_attr* attrs);
     int query_output_attributes(rknn_context ctx, rknn_input_output_num& io_num, const char* model_name, rknn_tensor_attr* attrs);
-    rknpu2::float16* infer(unsigned char* input_data);
+
+    // rknpu2::float16* infer(unsigned char* input_data);
+
+    // 修改：infer方法现在接收图像和点云数据
+    rknpu2::float16* infer_multi_sensor(unsigned char* image_data, rknpu2::float16* pointcloud_data);
+    
+    // 重载：使用MultiSensorData结构的infer方法
+    rknpu2::float16* infer(const MultiSensorData& sensor_data);
 
     ~SimpleBEV();
 
@@ -64,21 +87,29 @@ private:
     std::mutex mtx;
 
     ModelPaths model_paths_;
-    rknn_context encoder_ctx{}, grid_sample_ctx{}, decoder_ctx{};
-    unsigned char *encoder_data = nullptr, *grid_sample_data = nullptr, *decoder_data = nullptr;
+    rknn_context encoder_ctx{}, grid_sample_ctx{}, decoder_ctx{}, lasernet_ctx{};
+    unsigned char *encoder_data = nullptr, *grid_sample_data = nullptr, *decoder_data = nullptr, *lasernet_data = nullptr;
 
-    rknn_input_output_num encoder_io_num{}, grid_sample_io_num{}, decoder_io_num{};
-    TensorAttrArrEncoder encoder_input_attrs{};
-    TensorAttrArrGridSample grid_sample_input_attrs{};
-    TensorAttrArrDecoder decoder_input_attrs{};
-    TensorAttrArrEncoder encoder_output_attrs{};
-    TensorAttrArrGridSample grid_sample_output_attrs{};
-    TensorAttrArrDecoder decoder_output_attrs{};
+    rknn_input_output_num encoder_io_num{}, grid_sample_io_num{}, decoder_io_num{}, lasernet_io_num{};
 
-    rknn_tensor_mem* input_mems = nullptr;
+    InputAttrArrEncoder encoder_input_attrs{};
+    InputAttrArrGridSample grid_sample_input_attrs{};
+    InputAttrArrDecoder decoder_input_attrs{};
+    InputAttrArrLaserNet lasernet_input_attrs{};
+
+    OutputAttrArrEncoder encoder_output_attrs{};
+    OutputAttrArrGridSample grid_sample_output_attrs{};
+    OutputAttrArrDecoder decoder_output_attrs{};
+    OutputAttrArrLaserNet lasernet_output_attrs{};
+    
+    rknn_tensor_mem* input_img_mems = nullptr;
+    rknn_tensor_mem* input_laser_mems = nullptr;
+
     TensorMemArrEncoder output_mems_encoder{};
+    TensorMemArrLaserNet output_mems_lasernet{};
     TensorMemArrGridSample output_mems_grid_sample{};
     TensorMemArrDecoder output_mems_decoder{};
+
     rknn_tensor_mem* flat_idx_mems = nullptr;
 
     int channel = 0, width = 0, height = 0;

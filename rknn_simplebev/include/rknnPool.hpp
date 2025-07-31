@@ -60,7 +60,7 @@ int rknnPool<rknnModel, inputType, outputType>::init()
     // 初始化模型/Initialize the model
     for (int i = 0, ret = 0; i < threadNum; i++)
     {
-        ret = models[i]->init(models[0]->get_encoder_pctx(), models[0]->get_grid_sample_pctx(), models[0]->get_decoder_pctx(), models[0]->get_flat_idx_mems(), i != 0);
+        ret = models[i]->init(models[0]->get_encoder_pctx(), models[0]->get_grid_sample_pctx(), models[0]->get_decoder_pctx(), models[0]->get_lasernet_pctx(), models[0]->get_flat_idx_mems(), i != 0);
         if (ret != 0)
             return ret;
     }

@@ -33,23 +33,27 @@ endif()
 
 # ros dependencies
 find_package(catkin REQUIRED COMPONENTS
-  cv_bridge
-  roscpp
-  rospy
-  sensor_msgs
-  std_msgs
-  image_transport
-  message_filters
+    roscpp
+    std_msgs
+    sensor_msgs
+    image_transport
+    cv_bridge
+    message_filters
+    tf2_ros
+    tf2_geometry_msgs
+    jsk_recognition_msgs
+    geometry_msgs
 )
 
 # opencv
 find_package(OpenCV REQUIRED)
+find_package(PCL REQUIRED)
 
 include_directories(${RKNN_API_PATH}/include)
 include_directories(${CMAKE_SOURCE_DIR}/../3rdparty/)
 include_directories(${CMAKE_SOURCE_DIR}/include)
 include_directories(${catkin_INCLUDE_DIRS})
-
+include_directories(${PCL_INCLUDE_DIRS})
 
 # 设置RPATH
 set(CMAKE_INSTALL_RPATH "${CMAKE_INSTALL_PREFIX}/lib")
@@ -60,7 +64,7 @@ set(CMAKE_SKIP_BUILD_RPATH FALSE)
 add_executable(rknn_simplebev
         src/main.cc
         src/simplebev.cc
-        src/multi_camera_subscriber.cpp
+        src/multi_sensor_subscriber.cpp
 )
 
 target_link_libraries(rknn_simplebev

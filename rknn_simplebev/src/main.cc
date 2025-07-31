@@ -7,12 +7,13 @@
 #include <cmath>
 #include "simplebev.hpp"
 #include "rknnPool.hpp"
-#include "multi_camera_subscriber.hpp"
+#include "multi_sensor_subscriber.hpp"
+#include "multi_sensor_data.hpp"
 #include "fp16/Float16.h"
 
 // 全局变量
-std::unique_ptr<rknnPool<SimpleBEV, unsigned char*, rknpu2::float16*>> g_pool;
-std::unique_ptr<MultiCameraSubscriber> g_camera_subscriber;
+std::unique_ptr<rknnPool<SimpleBEV, MultiSensorData, rknpu2::float16*>> g_pool;
+std::unique_ptr<MultiSensorSubscriber> g_sensor_subscriber;
 bool g_running = true;
 
 // 信号处理函数
@@ -22,71 +23,65 @@ void signalHandler(int signal) {
     ros::shutdown();
 }
 
-// 图像处理回调函数
-void imageProcessingCallback(unsigned char* merged_image_data) {
+// 多传感器数据处理回调函数
+void sensorProcessingCallback(unsigned char* image_data, rknpu2::float16* pointcloud_data) {
     if (!g_pool || !g_running) {
         return;
     }
     
-    // 提交图像数据到RKNN线程池进行推理
-    if (g_pool->put(merged_image_data) != 0) {
-        ROS_WARN("Fail to put image to rknn pool!");
+    // 创建多传感器数据结构
+    MultiSensorData sensor_data(image_data, pointcloud_data);
+    
+    // 提交数据到RKNN线程池进行推理
+    if (g_pool->put(sensor_data) != 0) {
+        ROS_WARN("Fail to put sensor data to rknn pool!");
         return;
     }
 }
 
 void visualize_bev_grid(rknpu2::float16* bev_data, int width, int height) {
-  // 创建OpenCV矩阵
-  cv::Mat bev_image(height, width, CV_8UC3);
-  
-  // 对每个像素进行sigmoid处理和二值化
-  for (int y = 0; y < height; y++) {
-      for (int x = 0; x < width; x++) {
-          int idx = y * width + x;
-          
-          float raw_val = static_cast<float>(bev_data[idx]);
-          
-          // Sigmoid激活函数: 1 / (1 + exp(-x))
-          float sigmoid_val = 1.0f / (1.0f + std::exp(-raw_val));
-          
-          // 二值化：>0.5为不可行驶区域(白色)，<=0.5为可行驶区域(黑色)
-          uchar pixel_val = (sigmoid_val > 0.5f) ? 255 : 0;
-          
-          // 设置RGB值
-          bev_image.at<cv::Vec3b>(y, x) = cv::Vec3b(pixel_val, pixel_val, pixel_val);
-      }
-  }
-  
-  // 在中心添加红色标记点，便于观察方向
-  int center_x = width / 2;
-  int center_y = height / 2;
-  cv::rectangle(bev_image, 
-    cv::Point(center_x-2, center_y-2),
-    cv::Point(center_x+2, center_y+2),
-    cv::Scalar(0, 0, 255),
-    -1);
+    // 创建OpenCV矩阵
+    cv::Mat bev_image(height, width, CV_8UC3, cv::Scalar(0, 0, 0));
+    
+    // 对每个像素进行sigmoid处理和二值化
+    for (int y = 0; y < height; y++) {
+        for (int x = 0; x < width; x++) {
+            int idx = y * width + x;            
+            float raw_val = static_cast<float>(bev_data[idx]);                        
+            // 二值化：>0.5为不可行驶区域(白色)，<=0.5为可行驶区域(黑色)
+            // uchar pixel_val = (raw_val > 0.0f) ? 255 : 0;            
+            // 设置RGB值
+            if (raw_val > 0.0f) {
+                bev_image.at<cv::Vec3b>(y, x) = cv::Vec3b(255, 255, 255); // 不可行驶区域
+            }
+        }
+    }
+    
+    // 在中心添加红色标记点，便于观察方向
+    int center_x = width / 2;
+    int center_y = height / 2;
+    cv::rectangle(bev_image, 
+        cv::Point(center_x-2, center_y-2),
+        cv::Point(center_x+2, center_y+2),
+        cv::Scalar(0, 0, 255),
+        -1);
 
-  // 放大显示图像，便于观察细节 (96x96 -> 480x480)
-  // cv::Mat enlarged_image;
-  // cv::resize(bev_image, enlarged_image, cv::Size(480, 480), 0, 0, cv::INTER_NEAREST);
-//   cv::flip(bev_image, bev_image, 0);
-  // 直接显示图像
-  cv::imshow("BEV Inference", bev_image);
-  cv::waitKey(1); // 非阻塞显示，允许实时更新
-  printf("BEV网格已显示 (白色=不可行驶，黑色=可行驶)\n");
+    // 直接显示图像
+    cv::imshow("BEV Inference with Multi-Sensor", bev_image);
+    cv::waitKey(1); // 非阻塞显示，允许实时更新
+    // printf("BEV网格已显示 (白色=不可行驶，黑色=可行驶) - 集成激光数据\n");
 }
-
 
 int main(int argc, char **argv) {
     // 初始化ROS节点
-    ros::init(argc, argv, "rknn_simplebev_multicamera");
+    ros::init(argc, argv, "rknn_simplebev_multi_sensor");
     ros::NodeHandle nh;
     
     // 设置信号处理
     signal(SIGINT, signalHandler);
     signal(SIGTERM, signalHandler);
     
-    ROS_INFO("Starting SimpleBEV Multi-Camera ROS Node");
+    ROS_INFO("Starting SimpleBEV Multi-Sensor ROS Node (8 Cameras + 2 LiDARs)");
     
     // 检查命令行参数
     if (argc < 5) {
@@ -99,7 +94,8 @@ int main(int argc, char **argv) {
         argv[1], // encoder
         argv[2], // grid_sample
         argv[4], // decoder
-        argv[3]  // flat_idx
+        argv[3],  // flat_idx
+        argv[5]  // lasernet_path
     };
     
     ROS_INFO("Model path configuration:");
@@ -107,6 +103,7 @@ int main(int argc, char **argv) {
     ROS_INFO("  Grid Sample: %s", modelPaths.grid_sample_path.c_str());
     ROS_INFO("  Decoder: %s", modelPaths.decoder_path.c_str());
     ROS_INFO("  Flat Index: %s", modelPaths.flat_idx_path.c_str());
+    ROS_INFO("  LaserNet: %s", modelPaths.lasernet_path.c_str());
     
     // 从ROS参数服务器获取线程数
     int threadNum = 3;
@@ -114,8 +111,8 @@ int main(int argc, char **argv) {
     
     try {
         // 初始化RKNN线程池
-        ROS_INFO("Initializing RKNN thread pool...");
-        g_pool = std::make_unique<rknnPool<SimpleBEV, unsigned char*, rknpu2::float16*>>(
+        ROS_INFO("Initializing RKNN thread pool for multi-sensor data...");
+        g_pool = std::make_unique<rknnPool<SimpleBEV, MultiSensorData, rknpu2::float16*>>(
             modelPaths, threadNum);
         
         if (g_pool->init() != 0) {
@@ -124,15 +121,21 @@ int main(int argc, char **argv) {
         }
         ROS_INFO("RKNN thread pool initialized successfully");
         
-        // 创建多摄像头订阅器
-        ROS_INFO("Creating multi-camera subscriber...");
-        g_camera_subscriber = std::make_unique<MultiCameraSubscriber>(
-            nh, imageProcessingCallback
+        // 创建多传感器订阅器
+        ROS_INFO("Creating multi-sensor subscriber...");
+        g_sensor_subscriber = std::make_unique<MultiSensorSubscriber>(
+            nh, sensorProcessingCallback
         );
         
-        // 启动摄像头订阅
-        g_camera_subscriber->start();
-        ROS_INFO("Multi-camera subscription started successfully");
+        // 启动传感器订阅
+        g_sensor_subscriber->start();
+        ROS_INFO("Multi-sensor subscription started successfully");
+        ROS_INFO("Expected input format:");
+        ROS_INFO("  Images: 8 x 224 x 400 x 3 = %d bytes", 
+                 MultiSensorSubscriber::TOTAL_IMAGE_SIZE);
+        ROS_INFO("  Point cloud: %d points x 3 dimensions = %d floats", 
+                 MultiSensorSubscriber::POINTCLOUD_SIZE, 
+                 MultiSensorSubscriber::TOTAL_POINTCLOUD_SIZE);
         
         // 统计信息
         struct timeval time;
@@ -141,10 +144,9 @@ int main(int argc, char **argv) {
         int processed_frames = 0;
         auto beforeTime = startTime;
         
-        ROS_INFO("SimpleBEV multi-camera node ready, waiting for image data...");
-        ROS_INFO("Expected input format: 8 x 224 x 400 x 3 = %d bytes", 
-                 MultiCameraSubscriber::TOTAL_SIZE);
-        ros::Rate loop_rate(5); // 
+        ROS_INFO("SimpleBEV multi-sensor node ready, waiting for sensor data...");
+        
+        ros::Rate loop_rate(5);
         while (ros::ok() && g_running) {
             ros::spinOnce();
             
@@ -163,7 +165,7 @@ int main(int argc, char **argv) {
                     gettimeofday(&time, nullptr);
                     auto currentTime = time.tv_sec * 1000 + time.tv_usec / 1000;
                     double fps = 120.0 / (double)(currentTime - beforeTime) * 1000.0;
-                    ROS_INFO("Inference FPS: %.2f fps", fps);
+                    ROS_INFO("Multi-sensor inference FPS: %.2f fps", fps);
                     beforeTime = currentTime;
                 }
             }
@@ -175,7 +177,7 @@ int main(int argc, char **argv) {
         auto endTime = time.tv_sec * 1000 + time.tv_usec / 1000;
         if (processed_frames > 0) {
             double total_fps = (double)processed_frames / (double)(endTime - startTime) * 1000.0;
-            ROS_INFO("Average inference FPS: %.2f fps", total_fps);
+            ROS_INFO("Average multi-sensor inference FPS: %.2f fps", total_fps);
             ROS_INFO("Total processed frames: %d", processed_frames);
         }
         
@@ -187,9 +189,9 @@ int main(int argc, char **argv) {
     // 清理资源
     ROS_INFO("Cleaning up resources...");
     
-    if (g_camera_subscriber) {
-        g_camera_subscriber->stop();
-        g_camera_subscriber.reset();
+    if (g_sensor_subscriber) {
+        g_sensor_subscriber->stop();
+        g_sensor_subscriber.reset();
     }
     
     if (g_pool) {
@@ -208,6 +210,6 @@ int main(int argc, char **argv) {
         g_pool.reset();
     }
     
-    ROS_INFO("SimpleBEV multi-camera node exited");
+    ROS_INFO("SimpleBEV multi-sensor node exited");
     return 0;
 } 

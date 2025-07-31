@@ -4,8 +4,8 @@
 #include <iostream>
 #include <cstring>
 #include <cmath>
-#include <thread>
-#include <future>
+// #include <thread>
+// #include <future>
 
 #include "coreNum.hpp"
 #include "simplebev.hpp"
@@ -431,26 +431,26 @@ rknpu2::float16 * SimpleBEV::infer_multi_sensor(unsigned char* image_data, rknpu
 
     // 模型推理/Model inference
     // 并行执行两个模型推理
-    std::future<int> lasernet_future = std::async(std::launch::async, [this]() {
-        return rknn_run(this->lasernet_ctx, NULL);
-    });
+    // std::future<int> lasernet_future = std::async(std::launch::async, [this]() {
+    //     return rknn_run(this->lasernet_ctx, NULL);
+    // });
 
-    std::future<int> encoder_future = std::async(std::launch::async, [this]() {
-        return rknn_run(this->encoder_ctx, NULL);
-    });
+    // std::future<int> encoder_future = std::async(std::launch::async, [this]() {
+    //     return rknn_run(this->encoder_ctx, NULL);
+    // });
 
-    // 等待两个推理完成
-    int lasernet_ret = lasernet_future.get();
-    int encoder_ret = encoder_future.get();
+    // // 等待两个推理完成
+    // int lasernet_ret = lasernet_future.get();
+    // int encoder_ret = encoder_future.get();
 
-    if (encoder_ret < 0 || lasernet_ret < 0) {
-        printf("Parallel inference failed! encoder_ret=%d, grid_sample_ret=%d\n", 
-                encoder_ret, lasernet_ret);
-        return nullptr;
-    }
+    // if (encoder_ret < 0 || lasernet_ret < 0) {
+    //     printf("Parallel inference failed! encoder_ret=%d, grid_sample_ret=%d\n", 
+    //             encoder_ret, lasernet_ret);
+    //     return nullptr;
+    // }
 
-    // ret = rknn_run(lasernet_ctx, NULL);
-    // ret = rknn_run(encoder_ctx, NULL);
+    ret = rknn_run(lasernet_ctx, NULL);
+    ret = rknn_run(encoder_ctx, NULL);
     ret = rknn_run(grid_sample_ctx, NULL);
     if (ret < 0) {
       printf("grid_sample rknn_run fail! ret=%d\n", ret);

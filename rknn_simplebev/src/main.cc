@@ -12,11 +12,6 @@
 #include "fp16/Float16.h"
 #include "bev_publisher.hpp"
 
-#define BASE_T_REF {9.5396e-04f,  -1.2006e-03f, 9.9983e-02f, -4.7392e+00f,
-  -9.9907e-02f, -3.1694e-03f, 8.8558e-04f,  4.6638e+00f,
-  4.2110e-03f,  -7.4923e-02f, -1.6396e-03f, 2.6543e-01f,
-  0.0f,  0.0f,  0.0f,  1.0f}
-
 // 全局变量
 std::unique_ptr<rknnPool<SimpleBEV, MultiSensorData, rknpu2::float16*>> g_pool;
 std::unique_ptr<MultiSensorSubscriber> g_sensor_subscriber;
@@ -84,7 +79,10 @@ int main(int argc, char **argv) {
     ros::NodeHandle nh;
     BEVPublisher bev_publisher(nh, "/bev_perception/grid_pc");
     // 2. 设置您的base_T_ref变换矩阵
-    const float base_T_ref[16] = BASE_T_REF;
+    const float base_T_ref[16] = {9.5396e-04f,  -1.2006e-03f, 9.9983e-02f, -4.7392e+00f,
+                                -9.9907e-02f, -3.1694e-03f, 8.8558e-04f,  4.6638e+00f,
+                                4.2110e-03f,  -7.4923e-02f, -1.6396e-03f, 2.6543e-01f,
+                                0.0f,  0.0f,  0.0f,  1.0f};
     bev_publisher.setTransformMatrix(base_T_ref);
 
     // 设置信号处理

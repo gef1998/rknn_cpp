@@ -15,8 +15,8 @@ BEVPublisher::BEVPublisher(ros::NodeHandle& nh,
     frame_id_ = "base_link";
     angle_min_ = -M_PI;
     angle_max_ = M_PI;
-    angle_increment_ = M_PI / 180.0; // 1度
-    range_min_ = 0.1f;
+    angle_increment_ = M_PI / 180.0 / 4; // 0.5度
+    range_min_ = 0.0500000007451f; // 5cm
     range_max_ = 30.0f;
     
     ROS_INFO("BEV发布器已初始化，话题: %s", topic_name_.c_str());

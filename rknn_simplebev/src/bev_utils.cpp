@@ -13,7 +13,7 @@ std::vector<Point3D> bevGridToPointCloud(const rknpu2::float16* bev_grid,
     
     for (int i = 0; i < config.grid_height; ++i) {
         for (int j = 0; j < config.grid_width; ++j) {
-            int idx = i * config.grid_width + j;
+            int idx = i * config.grid_width + j + 9216;
             float value = static_cast<float>(bev_grid[idx]);
             
             // 如果值大于阈值，认为是障碍物
@@ -29,8 +29,8 @@ std::vector<Point3D> bevGridToPointCloud(const rknpu2::float16* bev_grid,
         }
     }
     
-    ROS_INFO("BEV网格转换为点云: 从 %dx%d 网格中提取了 %zu 个障碍物点", 
-             config.grid_width, config.grid_height, points.size());
+    ROS_INFO("BEV grid to point cloud: Extracted %zu obstacle points from %dx%d grid", 
+            points.size(), config.grid_width, config.grid_height);
     
     return points;
 }
@@ -55,7 +55,7 @@ std::vector<Point3D> transformPointCloud(const std::vector<Point3D>& points,
         );
     }
     
-    ROS_INFO("坐标变换完成: 变换了 %zu 个点", points.size());
+    // ROS_INFO("坐标变换完成: 变换了 %zu 个点", points.size());
     
     return transformed_points;
 }
@@ -112,8 +112,8 @@ sensor_msgs::LaserScan pointCloudToLaserScan(const std::vector<Point3D>& points,
         }
     }
     
-    ROS_INFO("点云转换为LaserScan: %zu 个点转换为 %d 个激光束", 
-             points.size(), num_angles);
+    // ROS_INFO("点云转换为LaserScan: %zu 个点转换为 %d 个激光束", 
+    //          points.size(), num_angles);
     
     return scan;
 }

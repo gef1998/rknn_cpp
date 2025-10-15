@@ -95,7 +95,7 @@ public:
     sensor_msgs::LaserScan bevToLaserScan(const rknpu2::float16* bev_result,
                                          const Eigen::Matrix4f& base_T_ref,
                                          const bev_utils::BEVConfig& config = bev_utils::BEVConfig(),
-                                         const std::string& frame_id = "base_link");
+                                         const std::string& frame_id = "base_footprint");
     
     /**
      * 便捷方法：从矩阵数组创建变换矩阵并转换为LaserScan
@@ -108,7 +108,7 @@ public:
     sensor_msgs::LaserScan bevToLaserScan(const rknpu2::float16* bev_result,
                                          const float transform_array[16],
                                          const bev_utils::BEVConfig& config = bev_utils::BEVConfig(),
-                                         const std::string& frame_id = "base_link");
+                                         const std::string& frame_id = "base_footprint");
 
     ~SimpleBEV();
 

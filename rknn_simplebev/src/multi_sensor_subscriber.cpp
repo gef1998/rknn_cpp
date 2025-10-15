@@ -11,29 +11,37 @@ MultiSensorSubscriber::MultiSensorSubscriber(ros::NodeHandle& nh, const SensorCa
     : nh_(nh), callback_(callback), running_(false), frame_count_(0),
       tf_buffer_(ros::Duration(10.0)), tf_listener_(tf_buffer_),
       front_left_sub_(nh_, "/front/left/image_raw", 5),
-      front_right_sub_(nh_, "/front/right/image_raw", 5),
+    //   front_right_sub_(nh_, "/front/right/image_raw", 5),
       right_left_sub_(nh_, "/right/left/image_raw", 5),
-      right_right_sub_(nh_, "/right/right/image_raw", 5),
+    //   right_right_sub_(nh_, "/right/right/image_raw", 5),
       back_left_sub_(nh_, "/back/left/image_raw", 5),
-      back_right_sub_(nh_, "/back/right/image_raw", 5),
+    //   back_right_sub_(nh_, "/back/right/image_raw", 5),
       left_left_sub_(nh_, "/left/left/image_raw", 5),
-      left_right_sub_(nh_, "/left/right/image_raw", 5),
+    //   left_right_sub_(nh_, "/left/right/image_raw", 5),
       base_frame_("base_footprint")
 {
     // 分配输出缓冲区
     image_buffer_ = std::make_unique<unsigned char[]>(TOTAL_IMAGE_SIZE);
     pointcloud_buffer_ = std::make_unique<rknpu2::float16[]>(TOTAL_POINTCLOUD_SIZE);
-    
+
     // 创建时间同步器 - 只同步8个图像
     sync_ = std::make_unique<message_filters::Synchronizer<SyncPolicy>>(
         SyncPolicy(10), 
-        front_left_sub_, front_right_sub_, right_left_sub_, right_right_sub_, 
-        back_left_sub_, back_right_sub_, left_left_sub_, left_right_sub_
+        front_left_sub_, 
+        // front_right_sub_, 
+        right_left_sub_, 
+        // right_right_sub_, 
+        back_left_sub_, 
+        // back_right_sub_, 
+        left_left_sub_
+        // left_right_sub_
     );
     
     // 注册图像同步回调
     sync_->registerCallback(boost::bind(&MultiSensorSubscriber::imageCallback, this, 
-                                      _1, _2, _3, _4, _5, _6, _7, _8));
+                                      _1, _2, _3, _4
+                                    //   ,_5, _6, _7, _8
+                                    ));
     
     // 独立订阅激光数据
     front_laser_sub_ = nh_.subscribe("/scan_emma_nav_front", 5, 
@@ -44,13 +52,13 @@ MultiSensorSubscriber::MultiSensorSubscriber(ros::NodeHandle& nh, const SensorCa
     ROS_INFO("Multi-sensor subscriber initialized");
     ROS_INFO("Subscribed image topics:");
     ROS_INFO("  /front/left/image_raw");
-    ROS_INFO("  /front/right/image_raw");
+    // ROS_INFO("  /front/right/image_raw");
     ROS_INFO("  /right/left/image_raw");
-    ROS_INFO("  /right/right/image_raw");
+    // ROS_INFO("  /right/right/image_raw");
     ROS_INFO("  /back/left/image_raw"); 
-    ROS_INFO("  /back/right/image_raw");
+    // ROS_INFO("  /back/right/image_raw");
     ROS_INFO("  /left/left/image_raw");
-    ROS_INFO("  /left/right/image_raw");
+    // ROS_INFO("  /left/right/image_raw");
     ROS_INFO("Subscribed laser topics (independent):");
     ROS_INFO("  /scan_emma_nav_front");
     ROS_INFO("  /scan_emma_nav_back");
@@ -88,13 +96,12 @@ void MultiSensorSubscriber::backLaserCallback(const sensor_msgs::LaserScanConstP
 
 void MultiSensorSubscriber::imageCallback(
     const sensor_msgs::ImageConstPtr& front_left,
-    const sensor_msgs::ImageConstPtr& front_right,
+    // const sensor_msgs::ImageConstPtr& front_right,
     const sensor_msgs::ImageConstPtr& right_left,
-    const sensor_msgs::ImageConstPtr& right_right,
+    // const sensor_msgs::ImageConstPtr& right_right,
     const sensor_msgs::ImageConstPtr& back_left,
-    const sensor_msgs::ImageConstPtr& back_right,
-    const sensor_msgs::ImageConstPtr& left_left,
-    const sensor_msgs::ImageConstPtr& left_right)
+    // const sensor_msgs::ImageConstPtr& back_right,
+    const sensor_msgs::ImageConstPtr& left_left)
 {
     std::lock_guard<std::mutex> lock(mutex_);
     
@@ -105,6 +112,8 @@ void MultiSensorSubscriber::imageCallback(
     try {
         // 获取最新的激光点云数据
         getLatestLaserPointCloud(pointcloud_buffer_.get());
+
+
         // // 打印latest_front_laser_的时间戳
         // if (latest_front_laser_) {
         //     ROS_INFO("Latest front laser timestamp: %f", latest_front_laser_->header.stamp.toSec());
@@ -114,12 +123,12 @@ void MultiSensorSubscriber::imageCallback(
         // }
         // // 打印相机数据时间戳
         // ROS_INFO("Front left image timestamp: %f", front_left->header.stamp.toSec()); 
-        // ROS_INFO("Front right image timestamp: %f", front_right->header.stamp.toSec());
+        // // ROS_INFO("Front right image timestamp: %f", front_right->header.stamp.toSec());
         // ROS_INFO("Right left image timestamp: %f", right_left->header.stamp.toSec());
-        // ROS_INFO("Right right image timestamp: %f", right_right->header.stamp.toSec());
+        // // ROS_INFO("Right right image timestamp: %f", right_right->header.stamp.toSec());
         // ROS_INFO("Back left image timestamp: %f", back_left->header.stamp.toSec());
-        // ROS_INFO("Back right image timestamp: %f", back_right->header.stamp.toSec());
-        // ROS_INFO("Left left image timestamp: %f", left_left->header.stamp.toSec());
+        // // ROS_INFO("Back right image timestamp: %f", back_right->header.stamp.toSec());
+        // // ROS_INFO("Left left image timestamp: %f", left_left->header.stamp.toSec());
         // ROS_INFO("Left right image timestamp: %f", left_right->header.stamp.toSec());
 
         // 处理8个摄像头图像
@@ -127,14 +136,23 @@ void MultiSensorSubscriber::imageCallback(
         images.reserve(NUM_CAMERAS);
         
         images.push_back(preprocessImage(front_left));
-        images.push_back(preprocessImage(front_right));
         images.push_back(preprocessImage(right_left));
-        images.push_back(preprocessImage(right_right));
         images.push_back(preprocessImage(back_left));
-        images.push_back(preprocessImage(back_right));
         images.push_back(preprocessImage(left_left));
-        images.push_back(preprocessImage(left_right));
-        
+
+        // images.push_back(cv::Mat::zeros(IMAGE_HEIGHT, IMAGE_WIDTH, CV_8UC3));
+        // images.push_back(cv::Mat::zeros(IMAGE_HEIGHT, IMAGE_WIDTH, CV_8UC3));
+        // images.push_back(cv::Mat::zeros(IMAGE_HEIGHT, IMAGE_WIDTH, CV_8UC3));
+        // images.push_back(cv::Mat::zeros(IMAGE_HEIGHT, IMAGE_WIDTH, CV_8UC3));
+        // images.push_back(cv::Mat::zeros(IMAGE_HEIGHT, IMAGE_WIDTH, CV_8UC3));
+        // images.push_back(cv::Mat::zeros(IMAGE_HEIGHT, IMAGE_WIDTH, CV_8UC3));
+        // images.push_back(cv::Mat::zeros(IMAGE_HEIGHT, IMAGE_WIDTH, CV_8UC3));
+        // images.push_back(cv::Mat::zeros(IMAGE_HEIGHT, IMAGE_WIDTH, CV_8UC3));
+
+        // // resized_image 可视化
+        // cv::imshow("Resized Image", images[0]);
+        // cv::waitKey(1); // 非阻塞显示，允许实时更新
+
         // 合并图像
         mergeImages(images, image_buffer_.get());
         
@@ -203,7 +221,7 @@ cv::Mat MultiSensorSubscriber::preprocessImage(const sensor_msgs::ImageConstPtr&
     } else {
         resized_image = image.clone();
     }
-    
+
     return resized_image;
 }
 

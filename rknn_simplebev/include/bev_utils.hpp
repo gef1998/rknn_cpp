@@ -49,7 +49,7 @@ std::vector<Point3D> transformPointCloud(const std::vector<Point3D>& points,
  * @return LaserScan消息
  */
 sensor_msgs::LaserScan pointCloudToLaserScan(const std::vector<Point3D>& points,
-                                            const std::string& frame_id = "base_link",
+                                            const std::string& frame_id = "base_footprint",
                                             float angle_min = -M_PI,
                                             float angle_max = M_PI,
                                             float angle_increment = M_PI/180.0,  // 1度

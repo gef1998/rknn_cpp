@@ -89,7 +89,7 @@ int main(int argc, char **argv) {
     signal(SIGINT, signalHandler);
     signal(SIGTERM, signalHandler);
     
-    ROS_INFO("Starting SimpleBEV Multi-Sensor ROS Node (8 Cameras + 2 LiDARs)");
+    ROS_INFO("Starting SimpleBEV Multi-Sensor ROS Node (4 Cameras + 2 LiDARs)");
     
     // 检查命令行参数
     if (argc < 5) {
@@ -139,7 +139,7 @@ int main(int argc, char **argv) {
         g_sensor_subscriber->start();
         ROS_INFO("Multi-sensor subscription started successfully");
         ROS_INFO("Expected input format:");
-        ROS_INFO("  Images: 8 x 224 x 400 x 3 = %d bytes", 
+        ROS_INFO("  Images: 4 x 224 x 400 x 3 = %d bytes", 
                  MultiSensorSubscriber::TOTAL_IMAGE_SIZE);
         ROS_INFO("  Point cloud: %d points x 3 dimensions = %d floats", 
                  MultiSensorSubscriber::POINTCLOUD_SIZE, 
@@ -163,10 +163,9 @@ int main(int argc, char **argv) {
             if (g_pool->get(result, 100) == 0) {
                 processed_frames++;
 
-                // 显示BEV可视化结果
                 if (result != nullptr) {
-                    visualize_bev_grid(result, 96, 96);
-                    bev_publisher.publishBEVResult(result);
+                    visualize_bev_grid(result, 96, 96); // 可视化
+                    bev_publisher.publishBEVResult(result); // 发布结果
                 }
                 
                 // 每120帧打印一次统计信息

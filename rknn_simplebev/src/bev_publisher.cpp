@@ -12,29 +12,29 @@ BEVPublisher::BEVPublisher(ros::NodeHandle& nh,
     base_T_ref_ = Eigen::Matrix4f::Identity();
         
     // 初始化默认LaserScan参数
-    frame_id_ = "base_link";
+    frame_id_ = "base_footprint";
     angle_min_ = -M_PI;
     angle_max_ = M_PI;
     angle_increment_ = M_PI / 180.0 / 4; // 0.5度
     range_min_ = 0.0500000007451f; // 5cm
     range_max_ = 30.0f;
     
-    ROS_INFO("BEV发布器已初始化，话题: %s", topic_name_.c_str());
+    ROS_INFO("BEV publisher is initialized, Topic: %s", topic_name_.c_str());
 }
 
 void BEVPublisher::setTransformMatrix(const float transform_array[16]) {
     base_T_ref_ = bev_utils::createTransformMatrix(transform_array);
-    ROS_INFO("已更新base_T_ref变换矩阵");
+    ROS_INFO("base_T_ref updated!");
 }
 
 void BEVPublisher::setTransformMatrix(const Eigen::Matrix4f& transform_matrix) {
     base_T_ref_ = transform_matrix;
-    ROS_INFO("已更新base_T_ref变换矩阵");
+    ROS_INFO("base_T_ref updated!");
 }
 
 void BEVPublisher::setBEVConfig(const bev_utils::BEVConfig& config) {
     bev_config_ = config;
-    ROS_INFO("已更新BEV配置: %dx%d网格", config.grid_width, config.grid_height);
+    ROS_INFO("BEV config updated: %dx%d grid", config.grid_width, config.grid_height);
 }
 
 void BEVPublisher::setLaserScanParams(const std::string& frame_id,
@@ -50,7 +50,7 @@ void BEVPublisher::setLaserScanParams(const std::string& frame_id,
     range_min_ = range_min;
     range_max_ = range_max;
     
-    ROS_INFO("已更新LaserScan参数: frame_id=%s, 角度范围=[%.2f, %.2f], 距离范围=[%.2f, %.2f]",
+    ROS_INFO("LaserScan params updated: frame_id=%s, angle=[%.2f, %.2f], range=[%.2f, %.2f]",
              frame_id_.c_str(), angle_min_, angle_max_, range_min_, range_max_);
 }
 
@@ -80,7 +80,7 @@ void BEVPublisher::publishBEVResult(const rknpu2::float16* bev_result) {
         published_count_++;
         last_publish_time_ = scan.header.stamp;
         
-        ROS_DEBUG("已发布BEV LaserScan消息 #%d", published_count_);
+        ROS_DEBUG("BEV LaserScan published #%d", published_count_);
         
     } catch (const std::exception& e) {
         ROS_ERROR("发布BEV结果时出错: %s", e.what());

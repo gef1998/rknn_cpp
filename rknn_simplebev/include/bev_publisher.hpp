@@ -49,7 +49,7 @@ public:
      * @param range_min: 最小距离
      * @param range_max: 最大距离
      */
-    void setLaserScanParams(const std::string& frame_id = "base_link",
+    void setLaserScanParams(const std::string& frame_id = "base_footprint",
                            float angle_min = -M_PI,
                            float angle_max = M_PI,
                            float angle_increment = M_PI/180.0,

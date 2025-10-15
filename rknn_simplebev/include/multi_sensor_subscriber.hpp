@@ -45,7 +45,7 @@ public:
     void stop();
     
     // 获取合并后的数据尺寸信息
-    static constexpr int NUM_CAMERAS = 8;
+    static constexpr int NUM_CAMERAS = 4;
     static constexpr int IMAGE_HEIGHT = 224;
     static constexpr int IMAGE_WIDTH = 400;
     static constexpr int IMAGE_CHANNELS = 3;
@@ -60,13 +60,14 @@ private:
     // 8个摄像头同步回调函数
     void imageCallback(
         const sensor_msgs::ImageConstPtr& front_left,
-        const sensor_msgs::ImageConstPtr& front_right,
+        // const sensor_msgs::ImageConstPtr& front_right,
         const sensor_msgs::ImageConstPtr& right_left,
-        const sensor_msgs::ImageConstPtr& right_right,
+        // const sensor_msgs::ImageConstPtr& right_right,
         const sensor_msgs::ImageConstPtr& back_left,
-        const sensor_msgs::ImageConstPtr& back_right,
-        const sensor_msgs::ImageConstPtr& left_left,
-        const sensor_msgs::ImageConstPtr& left_right);
+        // const sensor_msgs::ImageConstPtr& back_right,
+        const sensor_msgs::ImageConstPtr& left_left
+        // const sensor_msgs::ImageConstPtr& left_right
+    );
     
     // 激光数据回调函数（独立处理）
     void frontLaserCallback(const sensor_msgs::LaserScanConstPtr& laser_msg);
@@ -105,13 +106,13 @@ private:
     
     // 图像消息订阅器
     message_filters::Subscriber<sensor_msgs::Image> front_left_sub_;
-    message_filters::Subscriber<sensor_msgs::Image> front_right_sub_;
+    // message_filters::Subscriber<sensor_msgs::Image> front_right_sub_;
     message_filters::Subscriber<sensor_msgs::Image> right_left_sub_;
-    message_filters::Subscriber<sensor_msgs::Image> right_right_sub_;
+    // message_filters::Subscriber<sensor_msgs::Image> right_right_sub_;
     message_filters::Subscriber<sensor_msgs::Image> back_left_sub_;
-    message_filters::Subscriber<sensor_msgs::Image> back_right_sub_;
+    // message_filters::Subscriber<sensor_msgs::Image> back_right_sub_;
     message_filters::Subscriber<sensor_msgs::Image> left_left_sub_;
-    message_filters::Subscriber<sensor_msgs::Image> left_right_sub_;
+    // message_filters::Subscriber<sensor_msgs::Image> left_right_sub_;
     
     // 激光消息订阅器（独立订阅）
     ros::Subscriber front_laser_sub_;
@@ -119,7 +120,7 @@ private:
     
     // 时间同步器 - 只同步8个图像
     typedef message_filters::sync_policies::ApproximateTime<
-        sensor_msgs::Image, sensor_msgs::Image, sensor_msgs::Image, sensor_msgs::Image,
+        // sensor_msgs::Image, sensor_msgs::Image, sensor_msgs::Image, sensor_msgs::Image,
         sensor_msgs::Image, sensor_msgs::Image, sensor_msgs::Image, sensor_msgs::Image
     > SyncPolicy;
     

@@ -117,9 +117,13 @@ void BEVPublisher::publishPersonStates(const std::vector<STrack>& stracks, ros::
         person_state.height = 0.30;  // 默认高度
         person_state.width = 0.30;  // 使用较大的维度作为宽度
         
-        // 初始化协方差矩阵
-        person_state.covariances = covariance;  // 6x6 矩阵展平
-        
+        // 协方差矩阵
+        person_state.covariances.clear();
+        person_state.covariances.reserve(strack.covariance.size());
+        for (int i = 0; i < strack.covariance.size(); ++i) {
+            person_state.covariances.push_back(strack.covariance.data()[i]);
+        }
+
         state_array.people_state.push_back(person_state);
     }
     

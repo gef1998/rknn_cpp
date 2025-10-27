@@ -5,7 +5,7 @@
 ## 功能特性
 
 - **BEV网格处理**: 将96×96的BEV网格转换为3D点云
-- **坐标变换**: 支持4×4变换矩阵（base_T_ref）进行坐标系转换  
+- **坐标变换**: 支持4×4变换矩阵（base_T_mem）进行坐标系转换  
 - **LaserScan生成**: 将点云数据转换为ROS标准的LaserScan消息
 - **外部发布**: BEV推理结果在外部处理，支持发布到指定ROS话题
 - **自动发布器**: 提供BEVPublisher类，自动处理转换和发布流程
@@ -47,14 +47,14 @@ int main(int argc, char** argv) {
     // 1. 创建BEV发布器，自动发布到 /bev_perception/grid_pc
     BEVPublisher bev_publisher(nh, "/bev_perception/grid_pc");
     
-    // 2. 设置您的base_T_ref变换矩阵
-    const float base_T_ref[16] = {
+    // 2. 设置您的base_T_mem变换矩阵
+    const float base_T_mem[16] = {
         9.5396e-04f,  -1.2006e-03f, 9.9983e-02f, -4.7392e+00f,
         -9.9907e-02f, -3.1694e-03f, 8.8558e-04f,  4.6638e+00f,
         4.2110e-03f,  -7.4923e-02f, -1.6396e-03f, 2.6543e-01f,
         0.0f,  0.0f,  0.0f,  1.0f
     };
-    bev_publisher.setTransformMatrix(base_T_ref);
+    bev_publisher.setTransformMatrix(base_T_mem);
     
     // 3. 初始化SimpleBEV
     SimpleBEV::ModelPaths paths;
@@ -101,15 +101,15 @@ SimpleBEV simplebev(paths);
 MultiSensorData sensor_data(image_data, pointcloud_data);
 rknpu2::float16* bev_result = simplebev.infer(sensor_data);
 
-// 3. 设置base_T_ref变换矩阵
-const float base_T_ref[16] = { /* 您的变换矩阵 */ };
+// 3. 设置base_T_mem变换矩阵
+const float base_T_mem[16] = { /* 您的变换矩阵 */ };
 
 // 4. 转换为LaserScan
 sensor_msgs::LaserScan scan = simplebev.bevToLaserScan(
     bev_result, 
-    base_T_ref,
+    base_T_mem,
     bev_utils::BEVConfig(),  // 使用默认配置
-    "base_link"              // 目标坐标系
+    "base_footprint"              // 目标坐标系
 );
 
 // 5. 发布LaserScan消息
@@ -131,7 +131,7 @@ sensor_msgs::LaserScan scan = simplebev.bevToLaserScan(
     bev_result, 
     transform_array,
     bev_utils::BEVConfig(),
-    "base_link"
+    "base_footprint"
 );
 ```
 
@@ -150,9 +150,9 @@ config.center_y = 24.0f;         // 网格中心y坐标
 
 sensor_msgs::LaserScan scan = simplebev.bevToLaserScan(
     bev_result, 
-    base_T_ref, 
+    base_T_mem, 
     config,      // 使用自定义配置
-    "base_link"
+    "base_footprint"
 );
 ```
 
@@ -178,7 +178,7 @@ sensor_msgs::LaserScan scan = simplebev.bevToLaserScan(
 - x轴向右为正，y轴向下为正
 - 网格中心通常对应车辆位置
 
-### 变换矩阵 base_T_ref
+### 变换矩阵 base_T_mem
 - 4×4齐次变换矩阵
 - 将点从ref坐标系变换到base坐标系
 - 矩阵格式：
@@ -224,7 +224,7 @@ target_link_libraries(your_target
 
 ## 注意事项
 
-1. **坐标系一致性**: 确保base_T_ref变换矩阵正确反映了您的坐标系关系
+1. **坐标系一致性**: 确保base_T_mem变换矩阵正确反映了您的坐标系关系
 2. **网格参数**: BEV网格的物理尺寸和分辨率需要与您的模型训练参数一致
 3. **障碍物阈值**: 默认阈值为0.0，可以根据需要调整
 4. **性能考虑**: 对于实时应用，可以考虑减少点云密度或优化角度分辨率
@@ -270,7 +270,7 @@ rostopic hz /bev_perception/grid_pc
 - **新增BEVPublisher类**: 专门负责BEV结果的转换和发布
 - **话题发布**: 默认发布到 `/bev_perception/grid_pc` 话题
 - **简化坐标处理**: 直接使用网格坐标，移除物理尺寸参数
-- **支持您的变换矩阵**: 集成您提供的具体base_T_ref变换矩阵
+- **支持您的变换矩阵**: 集成您提供的具体base_T_mem变换矩阵
 
 ### 主要变化
 

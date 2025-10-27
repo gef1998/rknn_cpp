@@ -30,7 +30,7 @@
 class MultiSensorSubscriber {
 public:
     // 回调函数类型定义 - 现在包含图像数据和点云数据
-    using SensorCallback = std::function<void(unsigned char*, rknpu2::float16*)>;
+    using SensorCallback = std::function<void(unsigned char*, rknpu2::float16*, ros::Time)>;
     
     // 构造函数
     MultiSensorSubscriber(ros::NodeHandle& nh, const SensorCallback& callback);
@@ -99,11 +99,7 @@ private:
     
     ros::NodeHandle& nh_;
     SensorCallback callback_;
-    
-    // TF监听器
-    tf2_ros::Buffer tf_buffer_;
-    tf2_ros::TransformListener tf_listener_;
-    
+        
     // 图像消息订阅器
     message_filters::Subscriber<sensor_msgs::Image> front_left_sub_;
     // message_filters::Subscriber<sensor_msgs::Image> front_right_sub_;

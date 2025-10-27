@@ -9,14 +9,13 @@
 
 MultiSensorSubscriber::MultiSensorSubscriber(ros::NodeHandle& nh, const SensorCallback& callback)
     : nh_(nh), callback_(callback), running_(false), frame_count_(0),
-      tf_buffer_(ros::Duration(10.0)), tf_listener_(tf_buffer_),
-      front_left_sub_(nh_, "/front/left/image_raw", 5),
+      front_left_sub_(nh_, "/front/left/image_raw", 1),
     //   front_right_sub_(nh_, "/front/right/image_raw", 5),
-      right_left_sub_(nh_, "/right/left/image_raw", 5),
+      right_left_sub_(nh_, "/right/left/image_raw", 1),
     //   right_right_sub_(nh_, "/right/right/image_raw", 5),
-      back_left_sub_(nh_, "/back/left/image_raw", 5),
+      back_left_sub_(nh_, "/back/left/image_raw", 1),
     //   back_right_sub_(nh_, "/back/right/image_raw", 5),
-      left_left_sub_(nh_, "/left/left/image_raw", 5),
+      left_left_sub_(nh_, "/left/left/image_raw", 1),
     //   left_right_sub_(nh_, "/left/right/image_raw", 5),
       base_frame_("base_footprint")
 {
@@ -158,7 +157,7 @@ void MultiSensorSubscriber::imageCallback(
         
         // 调用回调函数进行推理（npu推理）
         if (callback_) {
-            callback_(image_buffer_.get(), pointcloud_buffer_.get());
+            callback_(image_buffer_.get(), pointcloud_buffer_.get(), front_left->header.stamp);
         }
         
         // 更新统计信息
@@ -296,54 +295,36 @@ pcl::PointCloud<pcl::PointXYZ>::Ptr MultiSensorSubscriber::laserToPointCloud(
 }
 
 pcl::PointCloud<pcl::PointXYZ>::Ptr MultiSensorSubscriber::transformToBaseFrame(
-    const pcl::PointCloud<pcl::PointXYZ>::Ptr& cloud, 
+    const pcl::PointCloud<pcl::PointXYZ>::Ptr& cloud,
     const std::string& source_frame) {
-    
+
     pcl::PointCloud<pcl::PointXYZ>::Ptr transformed_cloud(new pcl::PointCloud<pcl::PointXYZ>);
-    
-    try {
-        // 获取变换矩阵
-        geometry_msgs::TransformStamped transform_stamped;
-        transform_stamped = tf_buffer_.lookupTransform(base_frame_, source_frame, 
-                                                      ros::Time(0), ros::Duration(1.0));
-        
-        // 转换为PCL变换矩阵
-        Eigen::Matrix4f transform_matrix = Eigen::Matrix4f::Identity();
-        
-        // 平移
-        transform_matrix(0, 3) = transform_stamped.transform.translation.x;
-        transform_matrix(1, 3) = transform_stamped.transform.translation.y;
-        transform_matrix(2, 3) = transform_stamped.transform.translation.z;
-        
-        // 旋转（四元数转旋转矩阵）
-        tf2::Quaternion q(
-            transform_stamped.transform.rotation.x,
-            transform_stamped.transform.rotation.y,
-            transform_stamped.transform.rotation.z,
-            transform_stamped.transform.rotation.w);
-        tf2::Matrix3x3 rotation_matrix(q);
-        
-        for (int i = 0; i < 3; ++i) {
-            for (int j = 0; j < 3; ++j) {
-                transform_matrix(i, j) = rotation_matrix[i][j];
-            }
-        }
-        
-        // 应用变换
-        pcl::transformPointCloud(*cloud, *transformed_cloud, transform_matrix);
-        
-        ROS_DEBUG("Transformed point cloud from %s to %s with %zu points", 
-                 source_frame.c_str(), base_frame_.c_str(), transformed_cloud->points.size());
-        
-    } catch (tf2::TransformException& ex) {
-        ROS_WARN("Could not transform from %s to %s: %s", 
-                source_frame.c_str(), base_frame_.c_str(), ex.what());
-        // 如果变换失败，返回原始点云
-        *transformed_cloud = *cloud;
-    }
-    
+    Eigen::Matrix4f transform_matrix = Eigen::Matrix4f::Identity();
+
+    // 根据 source_frame 选择对应的外参矩阵 TODO:放在配置文件里（可运行时修改）
+    if (source_frame == "laser") {
+        transform_matrix <<
+            0.99996245,  0.00866553, 0.0,  0.4256656,
+           -0.00866553,  0.99996245, 0.0, -0.00483125,
+            0.0,          0.0,       1.0,  0.17,
+            0.0,          0.0,       0.0,  1.0;
+    } 
+    if (source_frame == "laser_back") {
+        transform_matrix <<
+           -0.99988415,  0.01522113, 0.0, -0.43864656,
+           -0.01522113, -0.99988415, 0.0, -0.00498646,
+            0.0,          0.0,       1.0,  0.17,
+            0.0,          0.0,       0.0,  1.0;
+    } 
+    // 直接应用固定外参矩阵
+    pcl::transformPointCloud(*cloud, *transformed_cloud, transform_matrix);
+
+    // ROS_INFO("Transformed point cloud from %s to %s using fixed extrinsic matrix (%zu points)",
+    //          source_frame.c_str(), base_frame_.c_str(), transformed_cloud->points.size());
+
     return transformed_cloud;
 }
+
 
 void MultiSensorSubscriber::mergeAndSamplePointClouds(
     const pcl::PointCloud<pcl::PointXYZ>::Ptr& front_cloud,

@@ -55,6 +55,17 @@ include_directories(${CMAKE_SOURCE_DIR}/include)
 include_directories(${catkin_INCLUDE_DIRS})
 include_directories(${PCL_INCLUDE_DIRS})
 
+set(BYTETRACKER_DIR ${CMAKE_SOURCE_DIR}/../3rdparty/byte_tracker)
+include_directories(${BYTETRACKER_DIR}/include)
+set(BYTETRACKER_SRCS
+    ${BYTETRACKER_DIR}/src/BYTETracker.cpp
+    ${BYTETRACKER_DIR}/src/STrack.cpp
+    ${BYTETRACKER_DIR}/src/kalmanFilter.cpp
+    ${BYTETRACKER_DIR}/src/lapjv.cpp
+    ${BYTETRACKER_DIR}/src/utils.cpp
+)
+
+
 # 设置RPATH
 set(CMAKE_INSTALL_RPATH "${CMAKE_INSTALL_PREFIX}/lib")
 set(CMAKE_BUILD_WITH_INSTALL_RPATH TRUE)
@@ -67,6 +78,7 @@ add_executable(rknn_simplebev
         src/multi_sensor_subscriber.cpp
         src/bev_utils.cpp
         src/bev_publisher.cpp
+        ${BYTETRACKER_SRCS}
 )
 
 target_link_libraries(rknn_simplebev

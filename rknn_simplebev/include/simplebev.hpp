@@ -46,6 +46,13 @@ static unsigned char *load_data(FILE *fp, size_t ofst, size_t sz);
 static unsigned char *load_model(const char *filename, int *model_size);
 static int saveFloat(const char *file_name, float *output, int element_size);
 
+struct InferResult {
+    rknpu2::float16 *output;
+    ros::Time stamp;
+    InferResult() : output(nullptr), stamp(ros::Time(0)) {}
+    InferResult(rknpu2::float16 *output, ros::Time stamp) : output(output), stamp(stamp) {}
+};
+
 // SimpleBEV类定义
 class SimpleBEV {
 public:
@@ -78,22 +85,22 @@ public:
     // rknpu2::float16* infer(unsigned char* input_data);
 
     // 修改：infer方法现在接收图像和点云数据
-    rknpu2::float16* infer_multi_sensor(unsigned char* image_data, rknpu2::float16* pointcloud_data);
+    InferResult infer_multi_sensor(unsigned char* image_data, rknpu2::float16* pointcloud_data, ros::Time stamp);
     
     // 重载：使用MultiSensorData结构的infer方法
-    rknpu2::float16* infer(const MultiSensorData& sensor_data);
+    InferResult infer(const MultiSensorData& sensor_data);
     
     // BEV网格处理和LaserScan转换方法
     /**
      * 将BEV推理结果转换为LaserScan消息
      * @param bev_result: BEV推理结果(96x96网格)
-     * @param base_T_ref: 坐标变换矩阵(4x4)
+     * @param base_T_mem: 坐标变换矩阵(4x4)
      * @param config: BEV配置参数
      * @param frame_id: 目标坐标系
      * @return LaserScan消息
      */
     sensor_msgs::LaserScan bevToLaserScan(const rknpu2::float16* bev_result,
-                                         const Eigen::Matrix4f& base_T_ref,
+                                         const Eigen::Matrix4f& base_T_mem,
                                          const bev_utils::BEVConfig& config = bev_utils::BEVConfig(),
                                          const std::string& frame_id = "base_footprint");
     

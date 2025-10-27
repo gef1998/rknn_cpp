@@ -6,6 +6,13 @@
 #include <vector>
 #include <Eigen/Dense>
 #include "fp16/Float16.h"
+#include <opencv2/opencv.hpp>
+#include "BYTETracker.h"
+
+struct CenterPoint {
+    float x, y, z, conf;
+    CenterPoint(float x = 0, float y = 0, float z = 0, float conf = 0) : x(x), y(y), z(z), conf(conf) {}
+};
 
 namespace bev_utils {
 
@@ -21,6 +28,7 @@ struct Point3D {
     Point3D(float x = 0, float y = 0, float z = 0) : x(x), y(y), z(z) {}
 };
 
+
 /**
  * 将BEV网格转换为3D点云
  * @param bev_grid: 96x96的BEV网格数据，值>0表示障碍物，<0表示可通行
@@ -35,12 +43,13 @@ std::vector<Point3D> bevGridToPointCloud(const rknpu2::float16* bev_grid,
 /**
  * 应用4x4变换矩阵到点云
  * @param points: 输入点云
- * @param transform_matrix: 4x4变换矩阵 (base_T_ref)
+ * @param transform_matrix: 4x4变换矩阵 (base_T_mem)
  * @return 变换后的点云
  */
 std::vector<Point3D> transformPointCloud(const std::vector<Point3D>& points,
                                          const Eigen::Matrix4f& transform_matrix);
-
+std::vector<CenterPoint> transformCenterPoint(const std::vector<CenterPoint>& points,
+                                         const Eigen::Matrix4f& transform_matrix);
 /**
  * 将3D点云转换为LaserScan消息
  * @param points: 3D点云
@@ -71,6 +80,13 @@ Eigen::Matrix4f createTransformMatrix(const float matrix_array[16]);
  */
 Eigen::Matrix4f createTransformMatrix(const Eigen::Matrix3f& rotation, 
                                      const Eigen::Vector3f& translation);
+
+void visualize_bev_grid(const rknpu2::float16* bev_data, int width, int height);
+cv::Mat get_bev_image(const rknpu2::float16* bev_data, int width, int height);
+
+std::vector<CenterPoint> getCenterPoint(const rknpu2::float16* bev_grid, int W, int H);
+std::vector<CenterPoint> peakLocalMax(const cv::Mat& img, int min_distance = 2, int threshold_abs = 180);
+std::vector<Object> centerPointsToObjects(const std::vector<CenterPoint>& centers);
 
 } // namespace bev_utils
 

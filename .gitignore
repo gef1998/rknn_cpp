@@ -31,6 +31,8 @@
 *.app
 
 *.mp4
+*.avi
+
 /build
 /install
 /.vscode
@@ -50,3 +52,5 @@
 *.bag
 /runtime
 /model
+
+!/3rdparty/byte_tracker

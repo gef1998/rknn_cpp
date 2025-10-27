@@ -5,6 +5,13 @@
 #include <sensor_msgs/LaserScan.h>
 #include <Eigen/Dense>
 #include "bev_utils.hpp"
+#include "BYTETracker.h"
+#include <tf2_ros/transform_listener.h>
+#include <tf2_eigen/tf2_eigen.h> 
+#include <sensor_msgs/PointCloud2.h>
+#include <pcl/point_cloud.h>
+#include <pcl/point_types.h>
+#include <pcl_conversions/pcl_conversions.h>
 
 /**
  * BEV结果发布器类
@@ -19,17 +26,18 @@ public:
      * @param queue_size: 消息队列大小
      */
     explicit BEVPublisher(ros::NodeHandle& nh, 
+                         int fps,
                          const std::string& topic_name = "/bev_perception/grid_pc",
                          int queue_size = 10);
 
     /**
-     * 设置base_T_ref变换矩阵
+     * 设置base_T_mem变换矩阵
      * @param transform_array: 4x4变换矩阵（行优先）
      */
     void setTransformMatrix(const float transform_array[16]);
 
     /**
-     * 设置base_T_ref变换矩阵
+     * 设置base_T_mem变换矩阵
      * @param transform_matrix: Eigen 4x4变换矩阵
      */
     void setTransformMatrix(const Eigen::Matrix4f& transform_matrix);
@@ -61,7 +69,7 @@ public:
      * @param simplebev: SimpleBEV实例引用
      * @param bev_result: BEV推理结果
      */
-    void publishBEVResult(const rknpu2::float16* bev_result);
+    void publishBEVResult(const rknpu2::float16* bev_result, ros::Time stamp);
 
     /**
      * 处理传感器数据并发布结果（完整流程）
@@ -73,13 +81,22 @@ public:
      * 获取当前发布器统计信息
      */
     void printStats() const;
+    void publishCenterPoints(const std::vector<CenterPoint>& center_points, ros::Time stamp);
 
 private:
     ros::NodeHandle& nh_;
     ros::Publisher laser_pub_;
-    
+    ros::Publisher center_points_pub_;
+
+    tf2_ros::Buffer tf_buffer_;
+    tf2_ros::TransformListener tf_listener_;
+
+    int fps;
+    cv::VideoWriter writer;
+    BYTETracker tracker;
+
     // 变换矩阵和配置
-    Eigen::Matrix4f base_T_ref_;
+    Eigen::Matrix4f base_T_mem_;
     bev_utils::BEVConfig bev_config_;
     
     // LaserScan参数

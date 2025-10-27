@@ -1,15 +1,19 @@
 #include "bev_publisher.hpp"
 
 BEVPublisher::BEVPublisher(ros::NodeHandle& nh, 
-                          const std::string& topic_name,
-                          int queue_size)
-    : nh_(nh), topic_name_(topic_name), published_count_(0) {
+                           int fps,
+                           const std::string& topic_name,
+                           int queue_size)
+    : nh_(nh), topic_name_(topic_name), fps(fps), published_count_(0), tf_buffer_(ros::Duration(10.0)), tf_listener_(tf_buffer_) {
     
     // 创建LaserScan发布器
     laser_pub_ = nh_.advertise<sensor_msgs::LaserScan>(topic_name_, queue_size);
-    
+    center_points_pub_ = nh.advertise<sensor_msgs::PointCloud2>("bev_center_points", 10);
+    writer = cv::VideoWriter("tracker_demo.avi",cv::VideoWriter::fourcc('X','V','I','D'), fps, cv::Size(960, 960));
+    tracker = BYTETracker(fps, 30);
+
     // 初始化默认变换矩阵（单位矩阵）
-    base_T_ref_ = Eigen::Matrix4f::Identity();
+    base_T_mem_ = Eigen::Matrix4f::Identity();
         
     // 初始化默认LaserScan参数
     frame_id_ = "base_footprint";
@@ -23,13 +27,13 @@ BEVPublisher::BEVPublisher(ros::NodeHandle& nh,
 }
 
 void BEVPublisher::setTransformMatrix(const float transform_array[16]) {
-    base_T_ref_ = bev_utils::createTransformMatrix(transform_array);
-    ROS_INFO("base_T_ref updated!");
+    base_T_mem_ = bev_utils::createTransformMatrix(transform_array);
+    ROS_INFO("base_T_mem updated!");
 }
 
 void BEVPublisher::setTransformMatrix(const Eigen::Matrix4f& transform_matrix) {
-    base_T_ref_ = transform_matrix;
-    ROS_INFO("base_T_ref updated!");
+    base_T_mem_ = transform_matrix;
+    ROS_INFO("base_T_mem updated!");
 }
 
 void BEVPublisher::setBEVConfig(const bev_utils::BEVConfig& config) {
@@ -54,13 +58,103 @@ void BEVPublisher::setLaserScanParams(const std::string& frame_id,
              frame_id_.c_str(), angle_min_, angle_max_, range_min_, range_max_);
 }
 
-void BEVPublisher::publishBEVResult(const rknpu2::float16* bev_result) {  
+void BEVPublisher::publishCenterPoints(const std::vector<CenterPoint>& center_points, ros::Time stamp) {
+    if (center_points.empty()) {
+        return;
+    }
+    
+    // 创建 PCL 点云
+    pcl::PointCloud<pcl::PointXYZI> cloud;
+    cloud.header.frame_id = "odom";  // 根据你的坐标系设置
+    cloud.header.stamp = pcl_conversions::toPCL(stamp);
+    cloud.is_dense = true;
+    
+    // 填充点云数据
+    for (const auto& point : center_points) {
+        pcl::PointXYZI pcl_point;
+        pcl_point.x = point.x;
+        pcl_point.y = point.y;
+        pcl_point.z = point.z;
+        pcl_point.intensity = point.conf;  // 使用 intensity 字段存储置信度
+        cloud.points.push_back(pcl_point);
+    }
+
+    // 转换为 ROS 消息并发布
+    sensor_msgs::PointCloud2 cloud_msg;
+    pcl::toROSMsg(cloud, cloud_msg);
+    center_points_pub_.publish(cloud_msg);
+    
+    ROS_DEBUG("发布了 %zu 个中心点", center_points.size());
+}
+
+void BEVPublisher::publishBEVResult(const rknpu2::float16* bev_result, ros::Time stamp) {  
     try {
+        std::vector<CenterPoint> center_points = bev_utils::getCenterPoint(bev_result, 96, 96); // 可视化
+        // TODO: CenterPoint 点从mem转换至ref再转换至base再转换至odom 
+        geometry_msgs::TransformStamped transform;
+        try {
+            transform = tf_buffer_.lookupTransform(
+                "odom",   // 目标坐标系
+                "base_footprint",  // 源坐标系
+                stamp,             // 获取最c新可用变换
+                ros::Duration(0)        // 超时时间
+            );
+        } catch (tf2::TransformException &ex) {
+            transform = tf_buffer_.lookupTransform(
+                "odom",   // 目标坐标系
+                "base_footprint",  // 源坐标系
+                ros::Time(0),             // 获取最新可用变换
+                ros::Duration(0)        // 超时时间
+            );
+        }
+        Eigen::Matrix4f odom_T_base = tf2::transformToEigen(transform).matrix().cast<float>();
+        Eigen::Matrix4f odom_T_mem = odom_T_base * base_T_mem_;
+        Eigen::Matrix4f mem_T_odom = odom_T_mem.inverse();
+
+        std::vector<CenterPoint> center_points_odom = bev_utils::transformCenterPoint(center_points, odom_T_mem);
+        publishCenterPoints(center_points_odom, stamp);
+
+        // std::vector<CenterPoint>转换至std::vector<Object>
+        std::vector<Object> objects = bev_utils::centerPointsToObjects(center_points_odom);
+        std::vector<STrack> output_stracks = tracker.update(objects);
+
+
+        cv::Mat bev_img = bev_utils::get_bev_image(bev_result, 96, 96);
+        cv::Mat bev_img_resized;
+        cv::resize(bev_img, bev_img_resized, cv::Size(960, 960), 0, 0, cv::INTER_NEAREST);
+        float scale_factor = 960.0f / 96.0f;  // 10倍缩放
+
+        for (int i = 0; i < output_stracks.size(); i++)
+        {
+            std::vector<float> tlwh = output_stracks[i].tlwh;
+            float vx = output_stracks[i].mean[4];
+            float vy = output_stracks[i].mean[5];
+            ROS_INFO("object %d vel: vx=%.3f, vy=%.3f", output_stracks[i].track_id, vx, vy);
+
+            Eigen::Vector4f homogeneous_point_odom(tlwh[0] + tlwh[2] / 2, tlwh[1] + tlwh[3] / 2, 0, 1.0f);
+            // 应用变换矩阵
+            Eigen::Vector4f transformed = mem_T_odom * homogeneous_point_odom;
+            Scalar s = tracker.get_color(output_stracks[i].track_id);
+
+            // 缩放坐标以适应 960x960 图像
+            float scaled_x = transformed[0] * scale_factor;
+            float scaled_y = transformed[2] * scale_factor;  // 注意：这里应该是 transformed[1] 而不是 transformed[2]
+            
+            // 调整文本和矩形的大小
+            cv::putText(bev_img_resized, 
+                        cv::format("id=%d vx=%.1f vy=%.1f", output_stracks[i].track_id, vx * 100., vy * 100.), 
+                        cv::Point(scaled_x, scaled_y - 8),  // 调整位置
+                        0, 0.8,  // 增大字体大小
+                        cv::Scalar(0, 0, 255), 2, cv::LINE_AA);
+
+            cv::rectangle(bev_img_resized, cv::Rect(scaled_x - 30, scaled_y - 30, 60, 60), s, 5);
+        }            
+        writer.write(bev_img_resized);
         // 转换BEV结果为LaserScan
         sensor_msgs::LaserScan scan = bev_utils::pointCloudToLaserScan(
             bev_utils::transformPointCloud(
                 bev_utils::bevGridToPointCloud(bev_result, bev_config_),
-                base_T_ref_
+                base_T_mem_
             ),
             frame_id_,
             angle_min_,
@@ -69,18 +163,15 @@ void BEVPublisher::publishBEVResult(const rknpu2::float16* bev_result) {
             range_min_,
             range_max_
         );
-        
         // 设置时间戳
         scan.header.stamp = ros::Time::now();
-        
         // 发布LaserScan消息
         laser_pub_.publish(scan);
-        
         // 更新统计信息
         published_count_++;
         last_publish_time_ = scan.header.stamp;
-        
         ROS_DEBUG("BEV LaserScan published #%d", published_count_);
+        
         
     } catch (const std::exception& e) {
         ROS_ERROR("发布BEV结果时出错: %s", e.what());

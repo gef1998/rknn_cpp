@@ -3,7 +3,6 @@
 #include <stdio.h>
 #include <memory>
 #include <sys/time.h>
-#include <opencv2/opencv.hpp>
 #include <cmath>
 #include "simplebev.hpp"
 #include "rknnPool.hpp"
@@ -13,7 +12,7 @@
 #include "bev_publisher.hpp"
 
 // 全局变量
-std::unique_ptr<rknnPool<SimpleBEV, MultiSensorData, rknpu2::float16*>> g_pool;
+std::unique_ptr<rknnPool<SimpleBEV, MultiSensorData, InferResult>> g_pool;
 std::unique_ptr<MultiSensorSubscriber> g_sensor_subscriber;
 bool g_running = true;
 
@@ -25,13 +24,13 @@ void signalHandler(int signal) {
 }
 
 // 多传感器数据处理回调函数
-void sensorProcessingCallback(unsigned char* image_data, rknpu2::float16* pointcloud_data) {
+void sensorProcessingCallback(unsigned char* image_data, rknpu2::float16* pointcloud_data, ros::Time stamp) {
     if (!g_pool || !g_running) {
         return;
     }
     
     // 创建多传感器数据结构
-    MultiSensorData sensor_data(image_data, pointcloud_data);
+    MultiSensorData sensor_data(image_data, pointcloud_data, stamp);
     
     // 提交数据到RKNN线程池进行推理
     if (g_pool->put(sensor_data) != 0) {
@@ -40,50 +39,19 @@ void sensorProcessingCallback(unsigned char* image_data, rknpu2::float16* pointc
     }
 }
 
-void visualize_bev_grid(rknpu2::float16* bev_data, int width, int height) {
-    // 创建OpenCV矩阵
-    cv::Mat bev_image(height, width, CV_8UC3, cv::Scalar(0, 0, 0));
-    
-    // 对每个像素进行sigmoid处理和二值化
-    for (int y = 0; y < height; y++) {
-        for (int x = 0; x < width; x++) {
-            int idx = y * width + x;            
-            float raw_val = static_cast<float>(bev_data[idx]);                        
-            // 二值化：>0.5为不可行驶区域(白色)，<=0.5为可行驶区域(黑色)
-            // uchar pixel_val = (raw_val > 0.0f) ? 255 : 0;            
-            // 设置RGB值
-            if (raw_val > 0.0f) {
-                bev_image.at<cv::Vec3b>(y, x) = cv::Vec3b(255, 255, 255); // 不可行驶区域
-            }
-        }
-    }
-    
-    // 在中心添加红色标记点，便于观察方向
-    int center_x = width / 2;
-    int center_y = height / 2;
-    cv::rectangle(bev_image, 
-        cv::Point(center_x-2, center_y-2),
-        cv::Point(center_x+2, center_y+2),
-        cv::Scalar(0, 0, 255),
-        -1);
-
-    // 直接显示图像
-    cv::imshow("BEV Inference with Multi-Sensor", bev_image);
-    cv::waitKey(1); // 非阻塞显示，允许实时更新
-    // printf("BEV网格已显示 (白色=不可行驶，黑色=可行驶) - 集成激光数据\n");
-}
 
 int main(int argc, char **argv) {
     // 初始化ROS节点
+    int fps = 5;
     ros::init(argc, argv, "rknn_simplebev_multi_sensor");
     ros::NodeHandle nh;
-    BEVPublisher bev_publisher(nh, "/bev_perception/grid_pc");
-    // 2. 设置您的base_T_ref变换矩阵
-    const float base_T_ref[16] = {9.5396e-04f,  -1.2006e-03f, 9.9983e-02f, -4.7392e+00f,
+    BEVPublisher bev_publisher(nh, fps, "/bev_perception/grid_pc");
+    // 2. 设置您的base_T_mem变换矩阵
+    const float base_T_mem[16] = {9.5396e-04f,  -1.2006e-03f, 9.9983e-02f, -4.7392e+00f,
                                 -9.9907e-02f, -3.1694e-03f, 8.8558e-04f,  4.6638e+00f,
                                 4.2110e-03f,  -7.4923e-02f, -1.6396e-03f, 2.6543e-01f,
                                 0.0f,  0.0f,  0.0f,  1.0f};
-    bev_publisher.setTransformMatrix(base_T_ref);
+    bev_publisher.setTransformMatrix(base_T_mem);
 
     // 设置信号处理
     signal(SIGINT, signalHandler);
@@ -120,7 +88,7 @@ int main(int argc, char **argv) {
     try {
         // 初始化RKNN线程池
         ROS_INFO("Initializing RKNN thread pool for multi-sensor data...");
-        g_pool = std::make_unique<rknnPool<SimpleBEV, MultiSensorData, rknpu2::float16*>>(
+        g_pool = std::make_unique<rknnPool<SimpleBEV, MultiSensorData, InferResult>>(
             modelPaths, threadNum);
         
         if (g_pool->init() != 0) {
@@ -153,19 +121,20 @@ int main(int argc, char **argv) {
         auto beforeTime = startTime;
         
         ROS_INFO("SimpleBEV multi-sensor node ready, waiting for sensor data...");
-        
-        ros::Rate loop_rate(5);
+        ros::Rate loop_rate(fps);
         while (ros::ok() && g_running) {
             ros::spinOnce();
             
             // 处理队列中的推理结果
-            rknpu2::float16 * result;
+            InferResult result;
             if (g_pool->get(result, 100) == 0) {
                 processed_frames++;
 
-                if (result != nullptr) {
-                    visualize_bev_grid(result, 96, 96); // 可视化
-                    bev_publisher.publishBEVResult(result); // 发布结果
+                if (result.output != nullptr) {
+                    // bev_utils::visualize_bev_grid(result, 96, 96); // 可视化
+                    // cv::imshow("BEV Track", bev_img);
+                    // cv::waitKey(1); // 非阻塞显示，允许实时更新
+                    bev_publisher.publishBEVResult(result.output, result.stamp); // 发布结果
                 }
                 
                 // 每120帧打印一次统计信息
@@ -205,12 +174,12 @@ int main(int argc, char **argv) {
     if (g_pool) {
         // 清空线程池中剩余的任务
         int remaining_results = 0;
-        rknpu2::float16 * result;
+        InferResult result;
         while (g_pool->get(result) == 0) {
             remaining_results++;
         }
-        if (result != nullptr) {
-            visualize_bev_grid(result, 96, 96);
+        if (result.output != nullptr) {
+            bev_publisher.publishBEVResult(result.output, result.stamp);
         }
         if (remaining_results > 0) {
             ROS_INFO("Processed remaining %d inference results", remaining_results);

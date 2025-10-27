@@ -17,13 +17,13 @@ int main(int argc, char** argv) {
     BEVPublisher bev_publisher(nh, "/bev_perception/grid_pc");
     
     // ✅ 第2步：设置您的变换矩阵
-    const float base_T_ref[16] = {
+    const float base_T_mem[16] = {
         9.5396e-04f,  -1.2006e-03f, 9.9983e-02f, -4.7392e+00f,
         -9.9907e-02f, -3.1694e-03f, 8.8558e-04f,  4.6638e+00f,
         4.2110e-03f,  -7.4923e-02f, -1.6396e-03f, 2.6543e-01f,
         0.0f,  0.0f,  0.0f,  1.0f
     };
-    bev_publisher.setTransformMatrix(base_T_ref);
+    bev_publisher.setTransformMatrix(base_T_mem);
     
     // ✅ 第3步：在您现有的推理循环中添加发布
     ros::Rate rate(10);
@@ -62,7 +62,7 @@ rostopic hz /bev_perception/grid_pc
 1. 启动RViz：`rviz`
 2. 添加LaserScan显示
 3. 设置Topic为：`/bev_perception/grid_pc`
-4. 设置Fixed Frame为：`base_link`
+4. 设置Fixed Frame为：`base_footprint`
 
 ## 📁 需要包含的头文件
 
@@ -98,7 +98,7 @@ target_link_libraries(your_bev_node
 ## ⚡ 关键点
 
 1. **无需修改现有推理代码** - 只需在推理后添加发布调用
-2. **自动处理坐标转换** - 使用您提供的base_T_ref矩阵
+2. **自动处理坐标转换** - 使用您提供的base_T_mem矩阵
 3. **标准ROS话题** - 发布到 `/bev_perception/grid_pc`
 4. **96×96网格支持** - 自动处理您的BEV网格格式
 
@@ -106,7 +106,7 @@ target_link_libraries(your_bev_node
 
 1. ✅ 包含头文件：`#include "bev_publisher.hpp"`
 2. ✅ 创建发布器：`BEVPublisher bev_publisher(nh, "/bev_perception/grid_pc");`
-3. ✅ 设置变换矩阵：`bev_publisher.setTransformMatrix(base_T_ref);`
+3. ✅ 设置变换矩阵：`bev_publisher.setTransformMatrix(base_T_mem);`
 4. ✅ 发布结果：`bev_publisher.publishBEVResult(simplebev, bev_result);`
 
 就这么简单！🎉 

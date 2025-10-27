@@ -420,7 +420,7 @@ void save_float16_to_bin(rknpu2::float16* data, size_t count) {
 //     return (rknpu2::float16 *)output_mems_decoder[2]->virt_addr;
 // }
 
-rknpu2::float16 * SimpleBEV::infer_multi_sensor(unsigned char* image_data, rknpu2::float16* pointcloud_data)
+InferResult SimpleBEV::infer_multi_sensor(unsigned char* image_data, rknpu2::float16* pointcloud_data, ros::Time stamp)
 {
     memcpy(input_img_mems->virt_addr, image_data, encoder_input_attrs[0].size);
     memcpy(input_laser_mems->virt_addr, pointcloud_data, lasernet_input_attrs[0].size);
@@ -452,14 +452,16 @@ rknpu2::float16 * SimpleBEV::infer_multi_sensor(unsigned char* image_data, rknpu
     ret = rknn_run(lasernet_ctx, NULL);
     ret = rknn_run(encoder_ctx, NULL);
     ret = rknn_run(grid_sample_ctx, NULL);
+    InferResult result(nullptr, stamp);
+    
     if (ret < 0) {
       printf("grid_sample rknn_run fail! ret=%d\n", ret);
-      return nullptr;
+      return result;
     }
     ret = rknn_run(decoder_ctx, NULL);
     if (ret < 0) {
       printf("decoder rknn_run fail! ret=%d\n", ret);
-      return nullptr;
+      return result;
     }
 
 
@@ -507,24 +509,24 @@ rknpu2::float16 * SimpleBEV::infer_multi_sensor(unsigned char* image_data, rknpu
         // }
         // printf("lasernet output sum: %f\n", sum);
         // printf("\n...\n");
-
-    return (rknpu2::float16 *)output_mems_decoder[0]->virt_addr;
+    result.output = (rknpu2::float16 *)output_mems_decoder[0]->virt_addr;
+    return result;
 }
 
 // 重载的infer方法，使用MultiSensorData结构
-rknpu2::float16* SimpleBEV::infer(const MultiSensorData& sensor_data) {
-    return infer_multi_sensor(sensor_data.image_data, sensor_data.pointcloud_data);
+InferResult SimpleBEV::infer(const MultiSensorData& sensor_data) {
+    return infer_multi_sensor(sensor_data.image_data, sensor_data.pointcloud_data, sensor_data.stamp);
 }
 
 sensor_msgs::LaserScan SimpleBEV::bevToLaserScan(const rknpu2::float16* bev_result,
-                                                 const Eigen::Matrix4f& base_T_ref,
+                                                 const Eigen::Matrix4f& base_T_mem,
                                                  const bev_utils::BEVConfig& config,
                                                  const std::string& frame_id) {
     // 步骤1: 将BEV网格转换为点云
     std::vector<bev_utils::Point3D> points = bev_utils::bevGridToPointCloud(bev_result, config);
     
     // 步骤2: 应用坐标变换
-    std::vector<bev_utils::Point3D> transformed_points = bev_utils::transformPointCloud(points, base_T_ref);
+    std::vector<bev_utils::Point3D> transformed_points = bev_utils::transformPointCloud(points, base_T_mem);
     
     // 步骤3: 转换为LaserScan消息
     sensor_msgs::LaserScan scan = bev_utils::pointCloudToLaserScan(transformed_points, frame_id);

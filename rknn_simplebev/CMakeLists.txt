@@ -43,6 +43,7 @@ find_package(catkin REQUIRED COMPONENTS
     tf2_geometry_msgs
     jsk_recognition_msgs
     geometry_msgs
+    emma_safe_msgs
 )
 
 # opencv

@@ -9,6 +9,7 @@ BEVPublisher::BEVPublisher(ros::NodeHandle& nh,
     // 创建LaserScan发布器
     laser_pub_ = nh_.advertise<sensor_msgs::LaserScan>(topic_name_, queue_size);
     center_points_pub_ = nh.advertise<sensor_msgs::PointCloud2>("bev_center_points", 10);
+    stracks_pub_ = nh.advertise<emma_safe_msgs::PersonStateArray>("person_states", 10);
     writer = cv::VideoWriter("tracker_demo.avi",cv::VideoWriter::fourcc('X','V','I','D'), fps, cv::Size(960, 960));
     tracker = BYTETracker(fps, 30);
 
@@ -87,6 +88,45 @@ void BEVPublisher::publishCenterPoints(const std::vector<CenterPoint>& center_po
     ROS_DEBUG("发布了 %zu 个中心点", center_points.size());
 }
 
+void BEVPublisher::publishPersonStates(const std::vector<STrack>& stracks, ros::Time stamp) {
+    if (stracks.empty()) {
+        return;
+    }
+    
+    emma_safe_msgs::PersonStateArray state_array;
+    state_array.header.stamp = stamp;
+    state_array.header.frame_id = "odom";
+    state_array.header.seq = published_count_;
+    
+    for (const auto& strack : stracks) {
+        emma_safe_msgs::PersonState person_state;
+        
+        // 获取位置和速度信息
+        std::vector<float> tlwh = strack.tlwh;
+        float vx = strack.mean[4];
+        float vy = strack.mean[5];
+                
+        // odom坐标系
+        Eigen::Vector4f center_odom(tlwh[0] + tlwh[2] / 2, 0, tlwh[1] + tlwh[3] / 2, 1.0f);
+        
+        person_state.id = strack.track_id;
+        person_state.x = center_odom[0];
+        person_state.y = center_odom[1]; 
+        person_state.vx = vx;
+        person_state.vy = vy;
+        person_state.height = 0.30;  // 默认高度
+        person_state.width = 0.30;  // 使用较大的维度作为宽度
+        
+        // 初始化协方差矩阵
+        person_state.covariances = covariance;  // 6x6 矩阵展平
+        
+        state_array.people_state.push_back(person_state);
+    }
+    
+    stracks_pub_.publish(state_array);
+    ROS_DEBUG("发布了 %zu 个人物状态", stracks.size());
+}
+
 void BEVPublisher::publishBEVResult(const rknpu2::float16* bev_result, ros::Time stamp) {  
     try {
         std::vector<CenterPoint> center_points = bev_utils::getCenterPoint(bev_result, 96, 96); // 可视化
@@ -118,6 +158,8 @@ void BEVPublisher::publishBEVResult(const rknpu2::float16* bev_result, ros::Time
         std::vector<Object> objects = bev_utils::centerPointsToObjects(center_points_odom);
         std::vector<STrack> output_stracks = tracker.update(objects);
 
+        // 发布人物状态
+        publishPersonStates(output_stracks, stamp);
 
         cv::Mat bev_img = bev_utils::get_bev_image(bev_result, 96, 96);
         cv::Mat bev_img_resized;

@@ -12,6 +12,8 @@
 #include <pcl/point_cloud.h>
 #include <pcl/point_types.h>
 #include <pcl_conversions/pcl_conversions.h>
+#include <emma_safe_msgs/PersonStateArray.h>
+#include <emma_safe_msgs/PersonState.h>
 
 /**
  * BEV结果发布器类
@@ -82,11 +84,13 @@ public:
      */
     void printStats() const;
     void publishCenterPoints(const std::vector<CenterPoint>& center_points, ros::Time stamp);
+    void publishPersonStates(const std::vector<STrack>& stracks, ros::Time stamp);
 
 private:
     ros::NodeHandle& nh_;
     ros::Publisher laser_pub_;
     ros::Publisher center_points_pub_;
+    ros::Publisher stracks_pub_;
 
     tf2_ros::Buffer tf_buffer_;
     tf2_ros::TransformListener tf_listener_;

@@ -85,6 +85,7 @@ void visualize_bev_grid(const rknpu2::float16* bev_data, int width, int height);
 cv::Mat get_bev_image(const rknpu2::float16* bev_data, int width, int height);
 
 std::vector<CenterPoint> getCenterPoint(const rknpu2::float16* bev_grid, int W, int H);
+std::vector<Object> getBEVBboxOdom(const rknpu2::float16* bev_grid, const Eigen::Matrix4f& odom_T_mem, int W, int H);
 std::vector<CenterPoint> peakLocalMax(const cv::Mat& img, int min_distance = 2, int threshold_abs = 180);
 std::vector<Object> centerPointsToObjects(const std::vector<CenterPoint>& centers);
 

@@ -59,35 +59,6 @@ void BEVPublisher::setLaserScanParams(const std::string& frame_id,
              frame_id_.c_str(), angle_min_, angle_max_, range_min_, range_max_);
 }
 
-void BEVPublisher::publishCenterPoints(const std::vector<CenterPoint>& center_points, ros::Time stamp) {
-    if (center_points.empty()) {
-        return;
-    }
-    
-    // 创建 PCL 点云
-    pcl::PointCloud<pcl::PointXYZI> cloud;
-    cloud.header.frame_id = "odom";  // 根据你的坐标系设置
-    cloud.header.stamp = pcl_conversions::toPCL(stamp);
-    cloud.is_dense = true;
-    
-    // 填充点云数据
-    for (const auto& point : center_points) {
-        pcl::PointXYZI pcl_point;
-        pcl_point.x = point.x;
-        pcl_point.y = point.y;
-        pcl_point.z = point.z;
-        pcl_point.intensity = point.conf;  // 使用 intensity 字段存储置信度
-        cloud.points.push_back(pcl_point);
-    }
-
-    // 转换为 ROS 消息并发布
-    sensor_msgs::PointCloud2 cloud_msg;
-    pcl::toROSMsg(cloud, cloud_msg);
-    center_points_pub_.publish(cloud_msg);
-    
-    ROS_DEBUG("发布了 %zu 个中心点", center_points.size());
-}
-
 void BEVPublisher::publishPersonStates(const std::vector<STrack>& stracks, ros::Time stamp) {
     if (stracks.empty()) {
         return;
@@ -102,18 +73,13 @@ void BEVPublisher::publishPersonStates(const std::vector<STrack>& stracks, ros::
         emma_safe_msgs::PersonState person_state;
         
         // 获取位置和速度信息
-        std::vector<float> tlwh = strack.tlwh;
-        float vx = strack.mean[4];
-        float vy = strack.mean[5];
-                
-        // odom坐标系
-        Eigen::Vector4f center_odom(tlwh[0] + tlwh[2] / 2, 0, tlwh[1] + tlwh[3] / 2, 1.0f);
-        
+        std::vector<float> tlwh = strack.tlwh;                
+        // odom坐标系        
         person_state.id = strack.track_id;
-        person_state.x = center_odom[0];
-        person_state.y = center_odom[1]; 
-        person_state.vx = vx;
-        person_state.vy = vy;
+        person_state.x = tlwh[0] + tlwh[2] / 2;
+        person_state.y = tlwh[1] + tlwh[3] / 2; 
+        person_state.vx = strack.mean[4];
+        person_state.vy = strack.mean[5];
         person_state.height = 0.30;  // 默认高度
         person_state.width = 0.30;  // 使用较大的维度作为宽度
         
@@ -133,7 +99,6 @@ void BEVPublisher::publishPersonStates(const std::vector<STrack>& stracks, ros::
 
 void BEVPublisher::publishBEVResult(const rknpu2::float16* bev_result, ros::Time stamp) {  
     try {
-        std::vector<CenterPoint> center_points = bev_utils::getCenterPoint(bev_result, 96, 96); // 可视化
         // TODO: CenterPoint 点从mem转换至ref再转换至base再转换至odom 
         geometry_msgs::TransformStamped transform;
         try {
@@ -155,11 +120,12 @@ void BEVPublisher::publishBEVResult(const rknpu2::float16* bev_result, ros::Time
         Eigen::Matrix4f odom_T_mem = odom_T_base * base_T_mem_;
         Eigen::Matrix4f mem_T_odom = odom_T_mem.inverse();
 
-        std::vector<CenterPoint> center_points_odom = bev_utils::transformCenterPoint(center_points, odom_T_mem);
-        publishCenterPoints(center_points_odom, stamp);
+        std::vector<Object> objects = bev_utils::getBEVBboxOdom(bev_result, odom_T_mem, 96, 96); // 可视化
 
+        // std::vector<CenterPoint> center_points_odom = bev_utils::transformCenterPoint(center_points, odom_T_mem);
         // std::vector<CenterPoint>转换至std::vector<Object>
-        std::vector<Object> objects = bev_utils::centerPointsToObjects(center_points_odom);
+        // std::vector<Object> objects = bev_utils::centerPointsToObjects(center_points_odom);
+
         std::vector<STrack> output_stracks = tracker.update(objects);
 
         // 发布人物状态
@@ -193,7 +159,7 @@ void BEVPublisher::publishBEVResult(const rknpu2::float16* bev_result, ros::Time
                         0, 0.8,  // 增大字体大小
                         cv::Scalar(0, 0, 255), 2, cv::LINE_AA);
 
-            cv::rectangle(bev_img_resized, cv::Rect(scaled_x - 30, scaled_y - 30, 60, 60), s, 5);
+            cv::rectangle(bev_img_resized, cv::Rect(scaled_x - tlwh[2] / 2, scaled_y - tlwh[3] / 2, tlwh[2], tlwh[3]), s, 5);
         }            
         writer.write(bev_img_resized);
         // 转换BEV结果为LaserScan

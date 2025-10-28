@@ -83,7 +83,6 @@ public:
      * 获取当前发布器统计信息
      */
     void printStats() const;
-    void publishCenterPoints(const std::vector<CenterPoint>& center_points, ros::Time stamp);
     void publishPersonStates(const std::vector<STrack>& stracks, ros::Time stamp);
 
 private:

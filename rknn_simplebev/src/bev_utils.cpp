@@ -288,24 +288,109 @@ std::vector<CenterPoint> getCenterPoint(const rknpu2::float16* bev_grid,
     cv::morphologyEx(center_image, center_image, cv::MORPH_OPEN,
         cv::getStructuringElement(cv::MORPH_RECT, cv::Size(2, 2)));
     std::vector<CenterPoint> center_points = peakLocalMax(center_image, 2, 128);
-    
-
-    // // vis
-    // cv::cvtColor(center_image, center_image, cv::COLOR_GRAY2BGR);      
-    // for (const auto& p : center_points) {
-    //     cv::circle(center_image, cv::Point(p.x, p.y), 2, cv::Scalar(255, 0, 0), -1);
-    //     cv::Point top_left(p.x -  2, p.y - 2);
-    //     cv::Point bottom_right(p.x + 2, p.y + 2);
-    //     top_left.x = std::max(0, top_left.x);
-    //     top_left.y = std::max(0, top_left.y);
-    //     bottom_right.x = std::min(center_image.cols - 1, bottom_right.x);
-    //     bottom_right.y = std::min(center_image.rows - 1, bottom_right.y);
-    //     cv::rectangle(center_image, top_left, bottom_right, cv::Scalar(0, 255, 0), 1);
-    // }
-    // cv::imshow("Person Center Inference with Multi-Sensor", center_image);
-    // cv::waitKey(1); // 非阻塞显示，允许实时更新
-
     return center_points;
+}
+
+std::vector<Object> getBEVBboxOdom(const rknpu2::float16* bev_grid, 
+                                    const Eigen::Matrix4f& odom_T_mem,
+                                    int W, int H) {
+    cv::Mat center_image(H, W, CV_8UC1, cv::Scalar(0));
+    const rknpu2::float16* ptr = bev_grid + W * H; // TODO: 这里写死了center分支所属channel，需要和网络输出对齐
+
+    for (int i = 0; i < H; ++i) {
+        for (int j = 0; j < W; ++j, ptr++) {
+            float value = static_cast<float>(*ptr);
+            center_image.at<uchar>(i, j) =  1.0 / (1.0 + expf(-value)) * 255.;
+        }
+    }
+    cv::morphologyEx(center_image, center_image, cv::MORPH_OPEN,
+        cv::getStructuringElement(cv::MORPH_RECT, cv::Size(2, 2)));
+    
+    // 使用轮廓检测来获取边界框
+    cv::Mat binary_image;
+    cv::threshold(center_image, binary_image, 127, 255, cv::THRESH_BINARY);
+    binary_image.convertTo(binary_image, CV_8U);
+    
+    std::vector<std::vector<cv::Point>> contours;
+    std::vector<cv::Vec4i> hierarchy;
+    cv::findContours(binary_image, contours, hierarchy, cv::RETR_EXTERNAL, cv::CHAIN_APPROX_SIMPLE);
+    
+    std::vector<Object> objects;
+    objects.reserve(contours.size() * 2);
+
+    for (const auto& cnt : contours) {
+        cv::Rect rect = cv::boundingRect(cnt);
+        int x = rect.x;
+        int y = rect.y;
+        int w = rect.width;
+        int h = rect.height;
+        
+        // 过滤太小的轮廓 (面积 <= 9)
+        if (w * h <= 9) {
+            continue;
+        }
+        // 如果面积 <= 16，设置固定大小
+        if (w * h <= 16) {
+            Object obj;
+            Eigen::Vector4f homogeneous_point(x + w / 2.0f, 0.0f, y + h / 2.0f, 1.0f);
+            // 应用变换矩阵
+            Eigen::Vector4f transformed = odom_T_mem * homogeneous_point;
+            obj.rect.x = transformed[0] - 3;  // 左上角 x
+            obj.rect.y = transformed[1] - 3;  // 左上角 y
+            obj.rect.width = 6;
+            obj.rect.height = 6;
+            obj.label = 0;                 // 默认标签
+            obj.prob = 1;            // 概率赋值, 目前默认为1
+            objects.push_back(obj);
+            continue;
+        }
+        
+        if (w * h >= 64) {
+            // 对于大轮廓，使用局部最大值搜索
+            cv::Rect roi_rect(x, y, w, h);
+            if (roi_rect.x >= 0 && roi_rect.y >= 0 && 
+                roi_rect.x + roi_rect.width <= center_image.cols && 
+                roi_rect.y + roi_rect.height <= center_image.rows) {
+                
+                cv::Mat roi = center_image(roi_rect);
+                std::vector<CenterPoint> local_peaks = peakLocalMax(roi, 2, 180);
+                
+                for (const auto& peak : local_peaks) {
+                    // Python 代码中：coordinates = coordinates + np.array([y, x]) 把坐标加上 ROI 偏移
+                    // 然后 x = cx - 3, y = cy - 3，绘制时左上角是 (x-1, y-1)
+                    // 所以最终框的左上角是 (cx-4, cy-4)，右下角是 (cx+2, cy+2)，中心是 (cx-1, cy-1)
+                    int cx = static_cast<int>(peak.x) + x;  // 加上 ROI 的 x 偏移
+                    int cy = static_cast<int>(peak.z) + y;  // 加上 ROI 的 y 偏移，CenterPoint 的 z 对应 y 坐标
+                    Eigen::Vector4f homogeneous_point(cx, 0.0f, cy, 1.0f);
+                    // 应用变换矩阵
+                    Eigen::Vector4f transformed = odom_T_mem * homogeneous_point;
+        
+                    Object obj;
+                    obj.rect.x = transformed[0] - 3;  // 左上角 x
+                    obj.rect.y = transformed[1] - 3;  // 左上角 y
+                    obj.rect.width = 6;
+                    obj.rect.height = 6;
+                    obj.label = 0;                 // 默认标签
+                    obj.prob = 1;            // 概率赋值, 目前默认为1
+                    objects.push_back(obj);
+                }
+            }
+        } else {
+            // 对于中等轮廓 (面积在 17-63 之间)，直接使用外接矩形
+            Object obj;
+            Eigen::Vector4f homogeneous_point(rect.x + rect.width / 2.0f, 0.0f, rect.y + rect.height / 2.0f, 1.0f);
+            // 应用变换矩阵
+            Eigen::Vector4f transformed = odom_T_mem * homogeneous_point;
+            obj.rect.x = transformed[0] - rect.width / 2.0f;  // 左上角 x
+            obj.rect.y = transformed[1] - rect.height / 2.0f;  // 左上角 y
+            obj.rect.width = rect.width;
+            obj.rect.height = rect.height;
+            obj.label = 0;                 // 默认标签
+            obj.prob = 1;            // 概率赋值, 目前默认为1
+            objects.push_back(obj);
+        }
+    }
+    return objects;
 }
 
 std::vector<Object> centerPointsToObjects(const std::vector<CenterPoint>& centers) {

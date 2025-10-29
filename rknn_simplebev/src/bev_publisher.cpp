@@ -80,8 +80,8 @@ void BEVPublisher::publishPersonStates(const std::vector<STrack>& stracks, ros::
         person_state.y = tlwh[1] + tlwh[3] / 2; 
         person_state.vx = strack.mean[4];
         person_state.vy = strack.mean[5];
-        person_state.width = tlwh[2];  // 使用较大的维度作为宽度
-        person_state.height = tlwh[3];  // 默认高度
+        person_state.width = tlwh[2] / 96 * 5;  // 96为网格宽度，5为实际距离 TODO: 参数化
+        person_state.height = tlwh[3] / 96 * 5;  // 96为网格宽度，5为实际距离 TODO: 参数化
         
         // 协方差矩阵
         person_state.covariances.clear();

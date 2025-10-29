@@ -80,8 +80,8 @@ void BEVPublisher::publishPersonStates(const std::vector<STrack>& stracks, ros::
         person_state.y = tlwh[1] + tlwh[3] / 2; 
         person_state.vx = strack.mean[4];
         person_state.vy = strack.mean[5];
-        person_state.height = 0.30;  // 默认高度
-        person_state.width = 0.30;  // 使用较大的维度作为宽度
+        person_state.width = tlwh[2];  // 使用较大的维度作为宽度
+        person_state.height = tlwh[3];  // 默认高度
         
         // 协方差矩阵
         person_state.covariances.clear();
@@ -159,7 +159,7 @@ void BEVPublisher::publishBEVResult(const rknpu2::float16* bev_result, ros::Time
                         0, 0.8,  // 增大字体大小
                         cv::Scalar(0, 0, 255), 2, cv::LINE_AA);
 
-            cv::rectangle(bev_img_resized, cv::Rect(scaled_x - tlwh[2] / 2, scaled_y - tlwh[3] / 2, tlwh[2], tlwh[3]), s, 5);
+            cv::rectangle(bev_img_resized, cv::Rect(scaled_x - tlwh[2] / 2 * scale_factor, scaled_y - tlwh[3] / 2 * scale_factor, tlwh[2] * scale_factor, tlwh[3] * scale_factor), s, 5);
         }            
         writer.write(bev_img_resized);
         // 转换BEV结果为LaserScan
